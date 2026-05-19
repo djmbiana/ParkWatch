@@ -1,2 +1,49 @@
-.DS_Store
+# ─── Dependencies ─────────────────────────────────────────
+node_modules/
+
+# ─── Environment Variables ────────────────────────────────
+# NEVER commit real credentials — use .env.example instead
+.env
+.env.local
+.env.*.local
+
+# ─── Secret Keys (GCP + Firebase service account JSONs) ───
+backend/config/gcloud-key.json
+backend/config/firebase-key.json
+*.key.json
+*-key.json
+*-credentials.json
+*serviceAccount*.json
+
+# ─── Uploaded Files (local dev only, goes to GCS in prod) ─
+backend/uploads/
+
+# ─── Logs ─────────────────────────────────────────────────
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+
+# ─── Build Output ─────────────────────────────────────────
+dist/
+build/
+.vite/
+
+# ─── OS Files ─────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── IDEs ─────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ─── Docker ───────────────────────────────────────────────
+# Keep docker-compose.yml but ignore local override files with passwords
+docker-compose.override.yml
+
+# ─── MySQL local data volume (if running without Docker) ──
+mysql_data/
