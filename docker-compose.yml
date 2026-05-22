@@ -1,3 +1,13 @@
+# docker-compose.yml — local development stack
+#
+# Before running: copy .env.example to .env at this directory level
+# and fill in real values. docker-compose reads the root .env for
+# ${VAR} substitution (db service), while the backend container
+# reads ./backend/.env for its own runtime config.
+#
+# Start the core services:  docker-compose up
+# Include the frontend:     docker-compose --profile frontend up
+
 services:
   backend:
     build:
@@ -6,13 +16,19 @@ services:
     container_name: parkwatch-backend
     ports:
       - "3000:3000"
+    environment:
+      # Override the Dockerfile default (8080) so local dev runs on 3000.
+      PORT: 3000
     env_file:
       - ./backend/.env
+    # Use nodemon for hot-reload in development.
+    command: npm run dev
     depends_on:
       db:
         condition: service_healthy
     volumes:
       - ./backend:/app
+      # Preserve the image's node_modules; don't overwrite with host folder.
       - /app/node_modules
     restart: unless-stopped
     networks:
@@ -24,21 +40,42 @@ services:
     environment:
       MYSQL_DATABASE: ${DB_NAME:-parkwatch}
       MYSQL_USER: ${DB_USER:-parkwatch_user}
-      MYSQL_PASSWORD: ${DB_PASSWORD}
-      MYSQL_ROOT_PASSWORD: ${DB_PASSWORD}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-change_me_in_dev}
+      # Root password is kept separate from the app-user password.
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change_me_root}
     ports:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./backend/database/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      # Seed the database schema on first container start.
+      - ./backend/src/config/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_PASSWORD}"]
+      # Ping without credentials — only checks server liveness.
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--silent"]
       interval: 10s
       timeout: 5s
       retries: 5
     restart: unless-stopped
     networks:
       - parkwatch-net
+
+  # React + Vite frontend — scaffolded in Sprint 2.
+  # Run with: docker-compose --profile frontend up frontend
+  frontend:
+    image: node:20-alpine
+    container_name: parkwatch-frontend
+    working_dir: /app
+    volumes:
+      - ./frontend:/app
+    ports:
+      - "5173:5173"
+    command: >
+      sh -c "echo 'Frontend not yet scaffolded.
+      Run: npm create vite@latest inside the frontend/ folder, then update this service.'"
+    networks:
+      - parkwatch-net
+    profiles:
+      - frontend
 
 volumes:
   mysql_data:

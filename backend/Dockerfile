@@ -3,7 +3,9 @@ FROM node:20-alpine AS builder
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm ci --only=production
+# Install all deps including devDependencies (nodemon) for docker-compose dev.
+# For a production Cloud Run image, swap this to: npm ci --omit=dev
+RUN npm ci
 
 FROM node:20-alpine
 
@@ -18,6 +20,9 @@ RUN mkdir -p uploads && chown -R parkwatch:parkwatch /app
 
 USER parkwatch
 
-EXPOSE 3000
+# Cloud Run injects PORT=8080 at runtime.
+# docker-compose overrides this to 3000 via its environment block.
+ENV PORT=8080
+EXPOSE 8080
 
 CMD ["node", "server.js"]

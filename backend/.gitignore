@@ -3,4 +3,13 @@ node_modules/
 dist/
 *.log
 .DS_Store
-uploads/
+
+# Keep uploads/ directory but ignore its contents (disk storage is local dev only)
+uploads/*
+!uploads/.gitkeep
+
+# GCP + Firebase service account credentials — NEVER commit these
+gcp-service-account.json
+firebase-service-account.json
+*-service-account.json
+*serviceAccount*.json

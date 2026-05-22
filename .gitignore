@@ -8,15 +8,21 @@ node_modules/
 .env.*.local
 
 # ─── Secret Keys (GCP + Firebase service account JSONs) ───
+# Explicit filenames required by spec (kebab-case doesn't match camelCase globs)
+gcp-service-account.json
+firebase-service-account.json
 backend/config/gcloud-key.json
 backend/config/firebase-key.json
 *.key.json
 *-key.json
 *-credentials.json
 *serviceAccount*.json
+*-service-account.json
 
 # ─── Uploaded Files (local dev only, goes to GCS in prod) ─
-backend/uploads/
+# Ignore contents but track the directory so it exists after clone.
+backend/uploads/*
+!backend/uploads/.gitkeep
 
 # ─── Logs ─────────────────────────────────────────────────
 *.log
