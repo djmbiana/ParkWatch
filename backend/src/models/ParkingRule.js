@@ -1,9 +1,18 @@
 /**
- * ParkingRule model — maps to the PARKING_RULES table (per-barangay/street rules
- * and no-parking time windows).
- * Data-access logic (via the mysql2 pool in src/config/db.js) is added in a later
- * sprint. See src/config/schema.sql for the table definition.
+ * ParkingRule model — maps to the PARKING_RULES table.
+ * Associates enforceable violation types with specific streets.
+ * Data-access logic added in a later sprint.
+ * See src/config/schema.sql for the full table definition.
  */
 const TABLE = 'PARKING_RULES';
 
-module.exports = { TABLE };
+const COLUMNS = {
+  ID:             'rule_id',
+  STREET_ID:      'street_id',
+  VIOLATION_TYPE: 'violation_type',
+  IS_ACTIVE:      'is_active',
+  CREATED_AT:     'created_at',
+  UPDATED_AT:     'updated_at',
+};
+
+module.exports = { TABLE, COLUMNS };

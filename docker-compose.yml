@@ -47,8 +47,11 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      # Seed the database schema on first container start.
+      # Both files run automatically on first container start (alphabetical order).
+      # 01 = DDL, 02 = reference/lookup data (barangays, streets, tiers).
+      # For dev user accounts: docker-compose exec backend npm run seed
       - ./backend/src/config/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+      - ./backend/src/config/seed.sql:/docker-entrypoint-initdb.d/02-seed.sql
     healthcheck:
       # Ping without credentials — only checks server liveness.
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "--silent"]
