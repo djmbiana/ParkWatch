@@ -193,9 +193,19 @@ async function seedReports(connection, refs) {
     },
   ];
 
+  let inserted = 0;
   for (const r of reports) {
-    await insertIgnore(connection,
-      `INSERT IGNORE INTO VIOLATION_REPORTS
+    // VIOLATION_REPORTS has no natural unique key other than AUTO_INCREMENT PK,
+    // so INSERT IGNORE would duplicate rows on every re-run. Use photo_path
+    // (unique per dev sample) to skip rows that already exist.
+    const [[existing]] = await connection.execute(
+      'SELECT report_id FROM VIOLATION_REPORTS WHERE photo_path = ? LIMIT 1',
+      [r.photo_path]
+    );
+    if (existing) continue;
+
+    await connection.execute(
+      `INSERT INTO VIOLATION_REPORTS
          (citizen_id, vehicle_id, street_id, barangay_id, violation_type, photo_path,
           ocr_extracted_plate, ocr_confidence_score, manual_plate_input,
           penalty_tier_id, status, resolution_outcome, rejection_reason,
@@ -203,34 +213,35 @@ async function seedReports(connection, refs) {
           submitted_at, verified_at, acknowledged_at, dispatched_at, escalated_at, resolved_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        r.citizen_id          ?? null,
-        r.vehicle_id          ?? null,
-        r.street_id           ?? null,
-        r.barangay_id         ?? null,
-        r.violation_type      ?? null,
-        r.photo_path          ?? null,
-        r.ocr_extracted_plate ?? null,
+        r.citizen_id           ?? null,
+        r.vehicle_id           ?? null,
+        r.street_id            ?? null,
+        r.barangay_id          ?? null,
+        r.violation_type       ?? null,
+        r.photo_path           ?? null,
+        r.ocr_extracted_plate  ?? null,
         r.ocr_confidence_score ?? null,
-        r.manual_plate_input  ?? null,
-        r.penalty_tier_id     ?? null,
+        r.manual_plate_input   ?? null,
+        r.penalty_tier_id      ?? null,
         r.status,
-        r.resolution_outcome  ?? null,
-        r.rejection_reason    ?? null,
-        r.verified_by         ?? null,
-        r.assigned_officer_id ?? null,
-        r.is_escalated        ?? false,
-        r.ticket_reference    ?? null,
+        r.resolution_outcome   ?? null,
+        r.rejection_reason     ?? null,
+        r.verified_by          ?? null,
+        r.assigned_officer_id  ?? null,
+        r.is_escalated         ?? false,
+        r.ticket_reference     ?? null,
         r.submitted_at,
-        r.verified_at         ?? null,
-        r.acknowledged_at     ?? null,
-        r.dispatched_at       ?? null,
-        r.escalated_at        ?? null,
-        r.resolved_at         ?? null,
+        r.verified_at          ?? null,
+        r.acknowledged_at      ?? null,
+        r.dispatched_at        ?? null,
+        r.escalated_at         ?? null,
+        r.resolved_at          ?? null,
       ]
     );
+    inserted++;
   }
 
-  logger.info(`Reports seeded (${reports.length} rows, skips duplicates)`);
+  logger.info(`Reports seeded (${inserted} inserted, ${reports.length - inserted} already existed)`);
 }
 
 // ---------------------------------------------------------------------------
@@ -255,16 +266,25 @@ async function seedNotifications(connection) {
     [report3.report_id, citizen1.user_id, 'Your report has been resolved. Ticket issued: TKT-2025-0001.',  'resolution',   new Date(), true, new Date()],
   ];
 
+  let inserted = 0;
   for (const [reportId, recipientId, message, type, sentAt, isRead, readAt] of notifications) {
-    await insertIgnore(connection,
+    // Deduplicate by (report_id, recipient_id) so re-runs don't double-notify.
+    const [[existing]] = await connection.execute(
+      'SELECT notification_id FROM NOTIFICATION_LOG WHERE report_id = ? AND recipient_id = ? LIMIT 1',
+      [reportId, recipientId]
+    );
+    if (existing) continue;
+
+    await connection.execute(
       `INSERT INTO NOTIFICATION_LOG
          (report_id, recipient_id, message, notification_type, sent_at, is_read, read_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [reportId, recipientId, message, type, sentAt, isRead, readAt]
     );
+    inserted++;
   }
 
-  logger.info(`Notifications seeded (${notifications.length} rows)`);
+  logger.info(`Notifications seeded (${inserted} inserted, ${notifications.length - inserted} already existed)`);
 }
 
 // ---------------------------------------------------------------------------

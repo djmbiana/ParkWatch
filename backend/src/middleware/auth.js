@@ -15,7 +15,12 @@ const authenticate = (req, res, next) => {
     req.user = jwt.verify(token, process.env.JWT_SECRET); // { id, role, barangay_id }
     next();
   } catch (err) {
-    return res.status(403).json({ success: false, message: 'Invalid or expired token.' });
+    // TokenExpiredError needs a distinct message so the client knows to
+    // re-authenticate rather than treating the token as permanently invalid.
+    const message = err.name === 'TokenExpiredError'
+      ? 'Session expired. Please log in again.'
+      : 'Invalid token.';
+    return res.status(403).json({ success: false, message });
   }
 };
 

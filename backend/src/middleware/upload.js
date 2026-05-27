@@ -1,12 +1,17 @@
+const fs     = require('fs');
 const multer = require('multer');
-const path = require('path');
+const path   = require('path');
 const { v4: uuidv4 } = require('uuid');
+
+// Ensure uploads/ exists so multer never crashes on a fresh clone.
+const UPLOAD_DIR = path.join(process.cwd(), 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
 
 // Local disk storage for evidence photos during development. In production these
 // are uploaded to Google Cloud Storage (see src/services/storageService.js).
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/');
+    cb(null, UPLOAD_DIR);
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();

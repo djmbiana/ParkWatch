@@ -1,0 +1,20 @@
+# Keeps the Docker build context clean.
+# Without this, COPY . . in the Dockerfile would pull in host node_modules
+# (compiled for the wrong OS), .env secrets, and junk files.
+
+node_modules/
+
+# Never bake secrets into an image layer
+.env
+.env.*
+*-service-account.json
+*serviceAccount*.json
+
+# Not needed inside the container
+uploads/*
+!uploads/.gitkeep
+dist/
+*.log
+.DS_Store
+.git
+coverage/

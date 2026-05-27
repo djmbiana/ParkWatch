@@ -1,14 +1,28 @@
 require('dotenv').config();
 
-const app = require('./src/app');
+const app    = require('./src/app');
 const logger = require('./src/config/logger');
 const { testConnection } = require('./src/config/db');
-const { initFirebase } = require('./src/config/firebase');
+const { initFirebase }   = require('./src/config/firebase');
 
 // Cloud Run injects PORT (defaults to 8080); fall back to 3000 for local dev.
 const PORT = process.env.PORT || 3000;
 
+// ---------------------------------------------------------------------------
+// Startup env validation — fail fast instead of booting with silent breakage.
+// ---------------------------------------------------------------------------
+const REQUIRED_ENV = ['JWT_SECRET', 'DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD'];
+
+const validateEnv = () => {
+  const missing = REQUIRED_ENV.filter((key) => !process.env[key]);
+  if (missing.length === 0) return;
+  logger.error(`Cannot start — missing required env vars: ${missing.join(', ')}`);
+  logger.error('Copy backend/.env.example → backend/.env and fill in the values.');
+  process.exit(1);
+};
+
 const start = async () => {
+  validateEnv();
   await testConnection();
   initFirebase();
 

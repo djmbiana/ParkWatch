@@ -8,7 +8,8 @@
     "dev": "nodemon server.js",
     "seed": "node src/config/seed-dev.js",
     "test": "jest",
-    "test:watch": "jest --watch"
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage"
   },
   "dependencies": {
     "@google-cloud/storage": "^7.14.0",
