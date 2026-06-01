@@ -106,6 +106,9 @@ const login = async (req, res, next) => {
     const GENERIC_AUTH_FAILED = 'Invalid email or password.';
 
     if (!user) {
+      // Run a dummy compare so response time is identical whether the email
+      // exists or not — prevents timing-based account enumeration.
+      await bcrypt.compare(password, '$2b$10$invalidhashpadding00000000000000000000000000000000000000');
       return res.status(401).json({ success: false, message: GENERIC_AUTH_FAILED });
     }
 
