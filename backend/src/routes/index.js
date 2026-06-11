@@ -19,5 +19,6 @@ router.use('/barangays', require('./barangayRoutes'));
 router.use('/vehicles', require('./vehicleRoutes'));
 router.use('/reports', require('./reportRoutes'));
 router.use('/notifications', require('./notificationRoutes'));
+router.use('/upload', require('./uploadRoutes'));
 
 module.exports = router;

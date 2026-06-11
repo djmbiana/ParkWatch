@@ -38,24 +38,24 @@ async function insertIgnore(connection, sql, params = []) {
 // ---------------------------------------------------------------------------
 
 async function getReferenceIds(connection) {
-  const [[brgy688]]  = await connection.execute("SELECT barangay_id FROM BARANGAYS WHERE barangay_name = 'Barangay 688'");
-  const [[brgy695]]  = await connection.execute("SELECT barangay_id FROM BARANGAYS WHERE barangay_name = 'Barangay 695'");
-  const [[brgy700]]  = await connection.execute("SELECT barangay_id FROM BARANGAYS WHERE barangay_name = 'Barangay 700'");
+  const [[brgy701]]  = await connection.execute("SELECT barangay_id FROM BARANGAYS WHERE barangay_name = 'Barangay 701'");
+  const [[brgy702]]  = await connection.execute("SELECT barangay_id FROM BARANGAYS WHERE barangay_name = 'Barangay 702'");
+  const [[brgy706]]  = await connection.execute("SELECT barangay_id FROM BARANGAYS WHERE barangay_name = 'Barangay 706'");
 
   const [[adriatico]] = await connection.execute("SELECT street_id FROM STREETS WHERE street_name = 'Adriatico Street'");
-  const [[delPilar]]  = await connection.execute("SELECT street_id FROM STREETS WHERE street_name = 'M.H. del Pilar Street'");
+  const [[delPilar]]  = await connection.execute("SELECT street_id FROM STREETS WHERE street_name = 'M.H. Del Pilar Street'");
   const [[taft]]      = await connection.execute("SELECT street_id FROM STREETS WHERE street_name = 'Taft Avenue'");
 
   const [[tier1]] = await connection.execute("SELECT tier_id FROM PENALTY_TIERS WHERE tier_name = '1st Offense'");
   const [[tier2]] = await connection.execute("SELECT tier_id FROM PENALTY_TIERS WHERE tier_name = '2nd Offense'");
   const [[tier3]] = await connection.execute("SELECT tier_id FROM PENALTY_TIERS WHERE tier_name = '3rd Offense+'");
 
-  if (!brgy688 || !adriatico || !tier1) {
+  if (!brgy701 || !adriatico || !tier1) {
     throw new Error('Reference data not found. Run seed.sql first (docker-compose up should handle this).');
   }
 
   return {
-    barangay: { b688: brgy688.barangay_id, b695: brgy695.barangay_id, b700: brgy700.barangay_id },
+    barangay: { b701: brgy701.barangay_id, b702: brgy702.barangay_id, b706: brgy706.barangay_id },
     street:   { adriatico: adriatico.street_id, delPilar: delPilar.street_id, taft: taft.street_id },
     tier:     { first: tier1.tier_id, second: tier2.tier_id, third: tier3.tier_id },
   };
@@ -72,10 +72,10 @@ async function seedUsers(connection, hash, refs) {
     // role,              first_name,  last_name,    email,                          barangay_id, is_verified
     ['admin',             'System',    'Admin',      'admin@parkwatch.ph',            null,        true],
     ['mtpb_supervisor',   'Juan',      'Dela Cruz',  'supervisor@mtpb.gov.ph',        null,        true],
-    ['mtpb_officer',      'Pedro',     'Reyes',      'officer1@mtpb.gov.ph',          b.b688,      true],
-    ['mtpb_officer',      'Carlos',    'Garcia',     'officer2@mtpb.gov.ph',          b.b695,      true],
-    ['brgy_official',     'Mario',     'Bautista',   'official1@brgy688.gov.ph',      b.b688,      true],
-    ['brgy_official',     'Jose',      'Ramos',      'official2@brgy695.gov.ph',      b.b695,      true],
+    ['mtpb_officer',      'Pedro',     'Reyes',      'officer1@mtpb.gov.ph',          b.b701,      true],
+    ['mtpb_officer',      'Carlos',    'Garcia',     'officer2@mtpb.gov.ph',          b.b702,      true],
+    ['brgy_official',     'Mario',     'Bautista',   'official1@brgy701.gov.ph',      b.b701,      true],
+    ['brgy_official',     'Jose',      'Ramos',      'official2@brgy702.gov.ph',      b.b702,      true],
     ['citizen',           'Ana',       'Santos',     'citizen1@gmail.com',            null,        false],
     ['citizen',           'Maria',     'Cruz',       'citizen2@gmail.com',            null,        false],
     ['citizen',           'Roberto',   'Lim',        'citizen3@gmail.com',            null,        false],
@@ -140,8 +140,8 @@ async function seedReports(connection, refs) {
       citizen_id:           citizen1.user_id,
       vehicle_id:           null,
       street_id:            s.adriatico,
-      barangay_id:          b.b688,
-      violation_type:       'No Parking Zone',
+      barangay_id:          b.b701,
+      violation_type:       'Parked in No Parking Zone',
       photo_path:           'reports/dev-sample-001.jpg',
       ocr_extracted_plate:  'ABC-1234',
       ocr_confidence_score: 92.50,
@@ -155,7 +155,7 @@ async function seedReports(connection, refs) {
       citizen_id:           citizen2.user_id,
       vehicle_id:           vXyz.vehicle_id,
       street_id:            s.delPilar,
-      barangay_id:          b.b695,
+      barangay_id:          b.b702,
       violation_type:       'Double Parking',
       photo_path:           'reports/dev-sample-002.jpg',
       ocr_extracted_plate:  'XYZ567B',                 // OCR misread
@@ -172,8 +172,8 @@ async function seedReports(connection, refs) {
       citizen_id:           citizen1.user_id,
       vehicle_id:           vAbc.vehicle_id,
       street_id:            s.taft,
-      barangay_id:          b.b700,
-      violation_type:       'Parking on Sidewalk',
+      barangay_id:          b.b706,
+      violation_type:       'Parked on Sidewalk',
       photo_path:           'reports/dev-sample-003.jpg',
       ocr_extracted_plate:  'ABC-1234',
       ocr_confidence_score: 97.80,
@@ -310,10 +310,10 @@ async function seed() {
     logger.info('Dev seed complete. All accounts use password: Malate@2025');
     logger.info('  admin@parkwatch.ph         → admin');
     logger.info('  supervisor@mtpb.gov.ph     → mtpb_supervisor');
-    logger.info('  officer1@mtpb.gov.ph       → mtpb_officer (Barangay 688)');
-    logger.info('  officer2@mtpb.gov.ph       → mtpb_officer (Barangay 695)');
-    logger.info('  official1@brgy688.gov.ph   → brgy_official');
-    logger.info('  official2@brgy695.gov.ph   → brgy_official');
+    logger.info('  officer1@mtpb.gov.ph       → mtpb_officer (Barangay 701)');
+    logger.info('  officer2@mtpb.gov.ph       → mtpb_officer (Barangay 702)');
+    logger.info('  official1@brgy701.gov.ph   → brgy_official');
+    logger.info('  official2@brgy702.gov.ph   → brgy_official');
     logger.info('  citizen1@gmail.com         → citizen');
     logger.info('  citizen2@gmail.com         → citizen');
     logger.info('  citizen3@gmail.com         → citizen');

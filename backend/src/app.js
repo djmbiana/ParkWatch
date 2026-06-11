@@ -54,6 +54,8 @@ app.use('/api', limiter);
 
 // ── Routes ───────────────────────────────────────────────
 app.use('/api/v1', routes);
+// Unversioned alias so the documented POST /api/upload/photo path also works.
+app.use('/api/upload', require('./routes/uploadRoutes'));
 
 // ── 404 Handler ──────────────────────────────────────────
 app.use((req, res) => {

@@ -16,7 +16,7 @@
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\r\n  \"first_name\": \"Ryan\",\r\n  \"last_name\": \"Indanan\",\r\n  \"email\": \"ryan.test@parkwatch.ph\",\r\n  \"password\": \"\"\r\n}",
+              "raw": "{\r\n  \"first_name\": \"Ryan\",\r\n  \"last_name\": \"Indanan\",\r\n  \"password\": \"RyanTest1234!\"\r\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -43,7 +43,7 @@
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\r\n  \"first_name\": \"Ryan\",\r\n  \"last_name\": \"Indanan\",\r\n  \"email\": \"ryan.test@parkwatch.ph\",\r\n  \"password\": \""\r\n}",
+              "raw": "{\r\n  \"first_name\": \"Ryan\",\r\n  \"last_name\": \"Indanan\",\r\n  \"email\": \"ryan.test@parkwatch.ph\",\r\n  \"password\": \"Short1!\"\r\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -70,7 +70,7 @@
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\r\n  \"first_name\": \"Ryan\",\r\n  \"last_name\": \"Indanan\",\r\n  \"email\": \"ryan.test@parkwatch.ph\",\r\n  \"password\": \"\"\r\n}",
+              "raw": "{\r\n  \"first_name\": \"Ryan\",\r\n  \"last_name\": \"Indanan\",\r\n  \"email\": \"citizen@test.com\",\r\n  \"password\": \"RyanTest1234!\"\r\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -117,7 +117,7 @@
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\r\n  \"email\": \"citizen1@gmail.com\",\r\n  \"password\": \""\r\n}",
+              "raw": "{\r\n  \"email\": \"citizen@test.com\",\r\n  \"password\": \"WrongPassword99!\"\r\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -164,7 +164,7 @@
             "header": [],
             "body": {
               "mode": "raw",
-              "raw": "{\r\n  \"email\": \"citizen1@gmail.com\",\r\n  \"password\": \""\r\n}",
+              "raw": "{\r\n  \"email\": \"nonexistent@parkwatch.ph\",\r\n  \"password\": \"Test1234!\"\r\n}",
               "options": {
                 "raw": {
                   "language": "json"
@@ -239,7 +239,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{token}}",
+                  "value": "",
                   "type": "string"
                 }
               ]
@@ -267,7 +267,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{token}}",
+                  "value": "this-is-not-a-jwt",
                   "type": "string"
                 }
               ]
@@ -295,7 +295,7 @@
               "bearer": [
                 {
                   "key": "token",
-                  "value": "{{token}}",
+                  "value": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6MSwicm9sZSI6ImFkbWluIn0.tampered-signature",
                   "type": "string"
                 }
               ]
@@ -324,7 +324,7 @@
         "header": [],
         "body": {
           "mode": "raw",
-          "raw": "{\r\n  \"first_name\": \"Ryan\",\r\n  \"last_name\": \"Indanan\",\r\n  \"email\": \"ryan.test@parkwatch.ph\",\r\n  \"password\": \"\"\r\n}",
+          "raw": "{\r\n  \"first_name\": \"Ryan\",\r\n  \"last_name\": \"Indanan\",\r\n  \"email\": \"ryan.test@parkwatch.ph\",\r\n  \"password\": \"RyanTest1234!\"\r\n}",
           "options": {
             "raw": {
               "language": "json"
@@ -371,7 +371,7 @@
         "header": [],
         "body": {
           "mode": "raw",
-          "raw": "{\r\n  \"email\": \"citizen1@gmail.com\",\r\n  \"password\": \""\r\n}",
+          "raw": "{\r\n  \"email\": \"citizen@test.com\",\r\n  \"password\": \"Test1234!\"\r\n}",
           "options": {
             "raw": {
               "language": "json"

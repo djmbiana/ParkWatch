@@ -24,14 +24,18 @@ const fileFilter = (req, file, cb) => {
   if (allowedTypes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error('Only JPEG, PNG, and WEBP images are allowed.'), false);
+    const err = new Error('Only JPEG, PNG, and WEBP images are allowed.');
+    err.statusCode = 400; // client error, not a 500
+    cb(err, false);
   }
 };
 
-const upload = multer({
-  storage,
-  fileFilter,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
-});
+const limits = { fileSize: 10 * 1024 * 1024 }; // 10 MB
 
-module.exports = { upload };
+const upload = multer({ storage, fileFilter, limits });
+
+// Memory-storage variant for files forwarded to Google Cloud Storage —
+// keeps the photo as a buffer (req.file.buffer) instead of writing to disk.
+const memoryUpload = multer({ storage: multer.memoryStorage(), fileFilter, limits });
+
+module.exports = { upload, memoryUpload };

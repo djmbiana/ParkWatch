@@ -9,6 +9,12 @@ const errorHandler = (err, req, res, next) => {
     return res.status(413).json({ success: false, message: 'File too large. Max size is 10MB.' });
   }
 
+  // Other multer errors (e.g. LIMIT_UNEXPECTED_FILE when the field name
+  // isn't "photo") are client mistakes, not server faults.
+  if (err.name === 'MulterError') {
+    return res.status(400).json({ success: false, message: `Upload error: ${err.message}.` });
+  }
+
   if (err.name === 'JsonWebTokenError') {
     return res.status(403).json({ success: false, message: 'Invalid token.' });
   }
