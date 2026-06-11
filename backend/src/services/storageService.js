@@ -46,4 +46,64 @@ const uploadBuffer = async (buffer, destination, contentType) => {
   return `https://storage.googleapis.com/${bucket.name}/${destination}`;
 };
 
-module.exports = { uploadBuffer };
+/**
+ * Resolves a photo reference to { bucket, objectPath }. Accepts the formats
+ * the API hands out or stores:
+ *   https://storage.googleapis.com/<bucket>/<path>   (upload endpoint output)
+ *   gs://<bucket>/<path>                             (Vision API input)
+ *   <path>                                           (bare object path, as stored
+ *                                                      in VIOLATION_REPORTS.photo_path)
+ * Throws 400 if unparseable, or if the URL points at a foreign bucket while
+ * GCS_BUCKET_NAME is configured (citizens must not reference arbitrary buckets).
+ */
+const parsePhotoRef = (photoRef) => {
+  const ref = String(photoRef ?? '').trim();
+  const configuredBucket = process.env.GCS_BUCKET_NAME || null;
+
+  let match = ref.match(/^https:\/\/storage\.googleapis\.com\/([^/]+)\/(.+)$/)
+    || ref.match(/^gs:\/\/([^/]+)\/(.+)$/);
+
+  let bucket;
+  let objectPath;
+  if (match) {
+    [, bucket, objectPath] = match;
+  } else if (configuredBucket && ref && !ref.includes('://')) {
+    bucket = configuredBucket;
+    objectPath = ref.replace(/^\/+/, '');
+  }
+
+  if (!bucket || !objectPath) {
+    const err = new Error('photo_url must be a ParkWatch storage URL (https://storage.googleapis.com/... or gs://...).');
+    err.statusCode = 400;
+    throw err;
+  }
+  if (configuredBucket && bucket !== configuredBucket) {
+    const err = new Error('photo_url does not belong to the ParkWatch storage bucket.');
+    err.statusCode = 400;
+    throw err;
+  }
+
+  return { bucket, objectPath };
+};
+
+/** gs://bucket/path URI for the Vision API (no re-download of the image). */
+const toGcsUri = (photoRef) => {
+  const { bucket, objectPath } = parsePhotoRef(photoRef);
+  return `gs://${bucket}/${objectPath}`;
+};
+
+/**
+ * V4 presigned read URL (default 15 minutes) for serving evidence photos to
+ * authorized clients without making the bucket public.
+ */
+const getSignedReadUrl = async (objectPath, expiresMinutes = 15) => {
+  const bucket = getBucket();
+  const [url] = await bucket.file(objectPath).getSignedUrl({
+    version: 'v4',
+    action: 'read',
+    expires: Date.now() + expiresMinutes * 60 * 1000,
+  });
+  return url;
+};
+
+module.exports = { uploadBuffer, parsePhotoRef, toGcsUri, getSignedReadUrl };

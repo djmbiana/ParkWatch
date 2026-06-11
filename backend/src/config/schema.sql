@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS VIOLATION_REPORTS (
   ocr_confidence_score DECIMAL(5,2),                     -- Vision API confidence 0.00–100.00
   manual_plate_input  VARCHAR(20),                       -- citizen-typed plate (fallback / override)
   penalty_tier_id     INT,                               -- assigned after verification
-  status              ENUM('pending','verified','acknowledged','dispatched','resolved','rejected')
+  status              ENUM('pending','verified','acknowledged','dispatched','resolved','rejected','escalated')
                         NOT NULL DEFAULT 'pending',
   resolution_outcome  VARCHAR(255),                      -- notes on how it was resolved
   rejection_reason    VARCHAR(255),

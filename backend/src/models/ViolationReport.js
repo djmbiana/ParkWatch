@@ -45,6 +45,7 @@ const STATUSES = {
   DISPATCHED:   'dispatched',
   RESOLVED:     'resolved',
   REJECTED:     'rejected',
+  ESCALATED:    'escalated',
 };
 
 module.exports = { TABLE, COLUMNS, STATUSES };

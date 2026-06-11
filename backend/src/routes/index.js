@@ -16,6 +16,7 @@ router.get('/health', (req, res) => {
 router.use('/auth', require('./authRoutes'));
 router.use('/users', require('./userRoutes'));
 router.use('/barangays', require('./barangayRoutes'));
+router.use('/streets', require('./streetRoutes'));
 router.use('/vehicles', require('./vehicleRoutes'));
 router.use('/reports', require('./reportRoutes'));
 router.use('/notifications', require('./notificationRoutes'));
