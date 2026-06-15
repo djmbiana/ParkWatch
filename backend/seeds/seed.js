@@ -83,10 +83,10 @@ const PENALTY_TIERS = [
 // the id is looked up by name so the seed also works on pre-existing databases.
 const TEST_USERS = [
   { email: 'citizen@test.com',    role: 'citizen',         first_name: 'Test', last_name: 'Citizen',    barangay: null,           alias: 'Citizen_test01' },
-  { email: 'barangay@test.com',   role: 'brgy_official',   first_name: 'Test', last_name: 'Official',   barangay: 'Barangay 701', alias: null },
-  { email: 'officer@test.com',    role: 'mtpb_officer',    first_name: 'Test', last_name: 'Officer',    barangay: null,           alias: null },
-  { email: 'supervisor@test.com', role: 'mtpb_supervisor', first_name: 'Test', last_name: 'Supervisor', barangay: null,           alias: null },
-  { email: 'admin@test.com',      role: 'admin',           first_name: 'Test', last_name: 'Admin',      barangay: null,           alias: null },
+  { email: 'barangay@test.com',   role: 'brgy_official',   first_name: 'Test', last_name: 'Official',   barangay: 'Barangay 701', alias: 'Official_test01' },
+  { email: 'officer@test.com',    role: 'mtpb_officer',    first_name: 'Test', last_name: 'Officer',    barangay: null,           alias: 'Officer_test01' },
+  { email: 'supervisor@test.com', role: 'mtpb_supervisor', first_name: 'Test', last_name: 'Supervisor', barangay: null,           alias: 'Supervisor_test01' },
+  { email: 'admin@test.com',      role: 'admin',           first_name: 'Test', last_name: 'Admin',      barangay: null,           alias: 'Admin_test01' },
 ];
 
 // ---------------------------------------------------------------------------
