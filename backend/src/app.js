@@ -48,6 +48,10 @@ const limiter = rateLimit({
   max: parseInt(process.env.RATE_LIMIT_MAX, 10) || 100,
   standardHeaders: true,
   legacyHeaders: false,
+  // Only enforce in production. The portals poll (queue auto-refresh) and the
+  // citizen app fetches per report, so the limit trips constantly during local
+  // testing — dropping submissions and plate searches as 429s.
+  skip: () => (process.env.NODE_ENV || 'development') !== 'production',
   message: { success: false, message: 'Too many requests, please try again later.' },
 });
 app.use('/api', limiter);

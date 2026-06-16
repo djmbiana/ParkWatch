@@ -140,6 +140,9 @@ const finishPipeline = async (res, ctx) => {
     }
   }
 
+  // Tier is for the violation being committed = the (prior count + 1)th offense.
+  // total_violations is still the PRIOR count here (incremented below).
+  const offenseNumber = vehicle.total_violations + 1;
   const [[tier]] = await pool.execute(
     `SELECT tier_id, tier_name, fine_amount, requires_clamping
        FROM PENALTY_TIERS
@@ -147,7 +150,7 @@ const finishPipeline = async (res, ctx) => {
         AND (max_violations IS NULL OR max_violations >= ?)
       ORDER BY min_violations DESC
       LIMIT 1`,
-    [vehicle.total_violations, vehicle.total_violations]
+    [offenseNumber, offenseNumber]
   );
 
   // Step 7 — create the report and bump the vehicle's counters atomically.
@@ -195,9 +198,11 @@ const finishPipeline = async (res, ctx) => {
     reportId = inserted.insertId;
 
     await connection.execute(
+      // total_violations is incremented first; the next assignment sees the new
+      // value, so a repeat offender is one with >= 2 total violations.
       `UPDATE VEHICLES
           SET total_violations = total_violations + 1,
-              is_repeat_offender = (total_violations + 1 >= 2)
+              is_repeat_offender = (total_violations >= 2)
         WHERE vehicle_id = ?`,
       [vehicle.vehicle_id]
     );
@@ -384,6 +389,7 @@ const penaltyPreview = async (req, res, next) => {
       [normalized]
     );
     const count = vehicle ? vehicle.total_violations : 0;
+    const offenseNumber = count + 1; // the offense this submission would be
 
     const [[tier]] = await pool.execute(
       `SELECT tier_name, fine_amount, requires_clamping
@@ -391,14 +397,14 @@ const penaltyPreview = async (req, res, next) => {
         WHERE min_violations <= ? AND (max_violations IS NULL OR max_violations >= ?)
         ORDER BY min_violations DESC
         LIMIT 1`,
-      [count, count]
+      [offenseNumber, offenseNumber]
     );
 
     return res.json({
       success: true,
       message: 'Success',
       data: {
-        offense_count: count + 1,
+        offense_count: offenseNumber,
         penalty_tier: tier
           ? { tier_name: tier.tier_name, fine_amount: Number(tier.fine_amount), requires_clamping: !!tier.requires_clamping }
           : null,
