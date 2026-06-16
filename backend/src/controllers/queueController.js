@@ -27,7 +27,7 @@ const REPORT_SELECT = `
     b.barangay_name, b.barangay_id AS bry_id,
     t.tier_id, t.tier_name, t.fine_amount, t.requires_clamping,
     v.plate_number, v.total_violations, v.is_repeat_offender,
-    u.anonymous_alias
+    COALESCE(r.anonymous_alias, u.anonymous_alias) AS anonymous_alias
   FROM VIOLATION_REPORTS r
   LEFT JOIN STREETS s        ON s.street_id   = r.street_id
   LEFT JOIN BARANGAYS b      ON b.barangay_id = COALESCE(r.barangay_id, s.barangay_id)
@@ -69,19 +69,16 @@ function mapRow(r) {
 
 // ---------------------------------------------------------------------------
 // GET /api/reports/queue/barangay
-// Returns pending reports for the logged-in barangay official's barangay.
+// Shared cross-barangay database (paper's cross-barangay violation tracking):
+// every barangay official sees ALL pending reports district-wide, each labeled
+// with its barangay, so repeat offenders are visible across barangay lines.
 // ---------------------------------------------------------------------------
 const barangayQueue = async (req, res, next) => {
   try {
-    const barangayId = req.user.barangay_id;
-    if (!barangayId) return fail(res, 403, 'No barangay assigned to your account.');
-
     const [rows] = await pool.execute(
       `${REPORT_SELECT}
        WHERE r.status = 'pending'
-         AND COALESCE(r.barangay_id, s.barangay_id) = ?
-       ORDER BY r.submitted_at ASC`,
-      [barangayId]
+       ORDER BY r.submitted_at ASC`
     );
 
     return res.json({ success: true, message: 'Success', data: rows.map(mapRow) });
@@ -93,9 +90,7 @@ const barangayQueue = async (req, res, next) => {
 // ---------------------------------------------------------------------------
 const barangayStats = async (req, res, next) => {
   try {
-    const barangayId = req.user.barangay_id;
-    if (!barangayId) return fail(res, 403, 'No barangay assigned.');
-
+    // District-wide stats — matches the shared cross-barangay queue above.
     const today = new Date().toISOString().slice(0, 10);
     const [[stats]] = await pool.execute(
       `SELECT
@@ -103,10 +98,8 @@ const barangayStats = async (req, res, next) => {
          SUM(CASE WHEN r.status = 'verified' AND DATE(r.verified_at) = ? THEN 1 ELSE 0 END) AS verified,
          SUM(CASE WHEN r.status = 'rejected' AND DATE(r.submitted_at) = ? THEN 1 ELSE 0 END) AS rejected,
          COALESCE(AVG(CASE WHEN r.verified_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.verified_at) END), 0) AS avg_review_min
-       FROM VIOLATION_REPORTS r
-       LEFT JOIN STREETS s ON s.street_id = r.street_id
-       WHERE COALESCE(r.barangay_id, s.barangay_id) = ?`,
-      [today, today, today, barangayId]
+       FROM VIOLATION_REPORTS r`,
+      [today, today, today]
     );
 
     return res.json({ success: true, message: 'Success', data: {
@@ -137,12 +130,8 @@ const verify = async (req, res, next) => {
     if (!report) return fail(res, 404, 'Report not found.');
     if (report.status !== 'pending') return fail(res, 409, 'Only pending reports can be verified.');
 
-    // Barangay officials can only verify reports in their barangay
-    if (req.user.role === 'brgy_official') {
-      const [[street]] = await pool.execute('SELECT barangay_id FROM STREETS WHERE street_id = ?', [report.street_id ?? 0]);
-      const brgy = report.barangay_id ?? street?.barangay_id;
-      if (brgy !== req.user.barangay_id) return fail(res, 403, 'You can only verify reports in your barangay.');
-    }
+    // Shared cross-barangay database: any barangay official may verify any
+    // pending report (no per-barangay restriction).
 
     if (action === 'approve') {
       await pool.execute(

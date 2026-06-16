@@ -42,7 +42,7 @@ const history = async (req, res, next) => {
               r.submitted_at, r.resolved_at, r.resolution_outcome,
               s.street_name, b.barangay_name,
               t.tier_name, t.fine_amount,
-              u.anonymous_alias AS reporter_alias
+              COALESCE(r.anonymous_alias, u.anonymous_alias) AS reporter_alias
          FROM VIOLATION_REPORTS r
          LEFT JOIN STREETS s       ON s.street_id   = r.street_id
          LEFT JOIN BARANGAYS b     ON b.barangay_id = COALESCE(r.barangay_id, s.barangay_id)

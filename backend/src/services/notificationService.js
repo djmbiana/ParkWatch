@@ -13,6 +13,21 @@
 
 const { pool } = require('../config/db');
 const logger = require('../config/logger');
+const { getMessaging } = require('../config/firebase');
+
+// Best-effort FCM push. Never throws — a delivery failure (or Firebase not
+// being configured) must not break the report pipeline.
+const pushFcm = async (token, title, body, reportId) => {
+  try {
+    await getMessaging().send({
+      token,
+      notification: { title, body },
+      data: { report_id: String(reportId) },
+    });
+  } catch (err) {
+    logger.warn(`FCM push failed for report ${reportId}: ${err.message}`);
+  }
+};
 
 // Exact message strings per the system spec. {detail} carries
 // resolution_outcome (resolved) or rejection_reason (rejected).
@@ -42,19 +57,40 @@ const TYPE_BY_STATUS = {
  *                                   resolved / rejected statuses
  */
 const send = async (recipientId, reportId, status, detail = '') => {
-  if (!recipientId) return null; // anonymous submission — no one to notify
-
   const template = STATUS_MESSAGES[status] || `Your report status changed to "${status}".`;
   const message = template.replace('{detail}', detail);
   const notificationType = TYPE_BY_STATUS[status] || 'status_update';
 
+  // Registered citizen — log against their account (in-app notification feed).
+  if (recipientId) {
+    const [result] = await pool.execute(
+      `INSERT INTO NOTIFICATION_LOG (report_id, recipient_id, message, notification_type, sent_at)
+       VALUES (?, ?, ?, ?, NOW())`,
+      [reportId, recipientId, message, notificationType]
+    );
+    logger.info(`Notification ${result.insertId} logged for user ${recipientId} (report ${reportId}, ${status})`);
+    return result.insertId;
+  }
+
+  // Anonymous report — deliver to the device token linked at submission, if any.
+  const [[row]] = await pool.execute(
+    `SELECT t.token
+       FROM VIOLATION_REPORTS r
+       JOIN PUBLIC_FCM_TOKENS t ON t.token_id = r.fcm_token_id
+      WHERE r.report_id = ?
+      LIMIT 1`,
+    [reportId]
+  );
+  if (!row || !row.token) return null; // no registered device — nothing to send
+
   const [result] = await pool.execute(
     `INSERT INTO NOTIFICATION_LOG (report_id, recipient_id, message, notification_type, sent_at)
-     VALUES (?, ?, ?, ?, NOW())`,
-    [reportId, recipientId, message, notificationType]
+     VALUES (?, NULL, ?, ?, NOW())`,
+    [reportId, message, notificationType]
   );
+  await pushFcm(row.token, 'ParkWatch', message, reportId);
 
-  logger.info(`Notification ${result.insertId} logged for user ${recipientId} (report ${reportId}, ${status})`);
+  logger.info(`Notification ${result.insertId} pushed to anonymous device (report ${reportId}, ${status})`);
   return result.insertId;
 };
 

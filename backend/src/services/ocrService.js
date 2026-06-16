@@ -124,6 +124,26 @@ const pickBest = (result) => {
   return best;
 };
 
+/**
+ * Loosest plate-ish candidate (has letters AND digits, 6–10 chars) — used only
+ * to PRE-FILL the editable plate field when no strictly-valid plate is found,
+ * so the citizen can correct an OCR slip (e.g. "AAA 489O" → "AAA 4890") instead
+ * of typing from scratch. Never stored as the authoritative plate.
+ */
+const pickGuess = (result) => {
+  let best = null;
+  for (const candidate of buildCandidates(result)) {
+    const norm = normalizePlate(candidate.text);
+    const compact = norm.replace(/[^A-Z0-9]/g, '');
+    if (compact.length < 6 || compact.length > 10) continue;
+    if (!/[A-Z]/.test(compact) || !/\d/.test(compact)) continue;
+    if (!best || (candidate.confidence ?? -1) > (best.confidence ?? -1)) {
+      best = { plate: norm, confidence: candidate.confidence };
+    }
+  }
+  return best;
+};
+
 const extractPlate = async (photoUrl) => {
   const gcsUri = toGcsUri(photoUrl); // throws 400 on malformed/foreign URLs
 
@@ -144,9 +164,17 @@ const extractPlate = async (photoUrl) => {
     ? Math.round(best.confidence * 100) / 100
     : null;
 
+  // A pre-fill guess for the editable field when no strict plate was found.
+  const guess = best || pickGuess(result);
+  const guessConfidence = guess && guess.confidence !== null
+    ? Math.round(guess.confidence * 100) / 100
+    : null;
+
   return {
     extracted_plate: best ? best.plate : null,
     confidence_score: confidence,
+    best_guess: guess ? guess.plate : null,
+    guess_confidence: confidence ?? guessConfidence,
     raw_response: JSON.stringify(result),
     needs_manual_review: !best || confidence === null || confidence < confidenceThreshold(),
   };

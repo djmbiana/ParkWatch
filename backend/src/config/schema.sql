@@ -101,6 +101,9 @@ CREATE TABLE IF NOT EXISTS PENALTY_TIERS (
 CREATE TABLE IF NOT EXISTS VIOLATION_REPORTS (
   report_id           INT           NOT NULL AUTO_INCREMENT,
   citizen_id          INT,                               -- reporter (NULL = anonymous submission)
+  anonymous_alias     VARCHAR(50),                       -- [ext] public handle generated at submission ("Reporter #XXXX")
+  access_token        VARCHAR(64),                       -- [ext] unguessable bearer token for anonymous report-by-id reads
+  fcm_token_id        INT,                               -- [ext] device token (PUBLIC_FCM_TOKENS) for anonymous push delivery
   vehicle_id          INT,                               -- resolved after OCR/manual plate match
   street_id           INT,
   barangay_id         INT,                               -- [ext] denormalized from street for faster queries
@@ -142,6 +145,9 @@ CREATE TABLE IF NOT EXISTS VIOLATION_REPORTS (
     FOREIGN KEY (verified_by)         REFERENCES USERS (user_id)           ON DELETE SET NULL,
   CONSTRAINT fk_reports_officer
     FOREIGN KEY (assigned_officer_id) REFERENCES USERS (user_id)           ON DELETE SET NULL,
+  CONSTRAINT fk_reports_fcm_token
+    FOREIGN KEY (fcm_token_id)        REFERENCES PUBLIC_FCM_TOKENS (token_id) ON DELETE SET NULL,
+  UNIQUE KEY uq_reports_access_token (access_token),
   INDEX idx_reports_status          (status),
   INDEX idx_reports_submitted_at    (submitted_at),
   INDEX idx_reports_citizen         (citizen_id),
@@ -182,6 +188,19 @@ CREATE TABLE IF NOT EXISTS NOTIFICATION_LOG (
   INDEX idx_notiflog_recipient (recipient_id),
   INDEX idx_notiflog_report    (report_id),
   INDEX idx_notiflog_is_read   (is_read)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ─── 9. PUBLIC_FCM_TOKENS ────────────────────────────────────────────────────
+-- [ext] Device tokens for anonymous citizens (no USERS row). Referenced by
+-- VIOLATION_REPORTS.fcm_token_id for push delivery (UC-03).
+CREATE TABLE IF NOT EXISTS PUBLIC_FCM_TOKENS (
+  token_id     INT          NOT NULL AUTO_INCREMENT,
+  token_hash   CHAR(64)     NOT NULL,            -- SHA2(token, 256)
+  token        VARCHAR(512) NOT NULL,
+  created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  last_seen_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (token_id),
+  UNIQUE KEY uq_fcm_token_hash (token_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 SET FOREIGN_KEY_CHECKS = 1;

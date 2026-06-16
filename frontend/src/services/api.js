@@ -117,3 +117,130 @@ function qs(params) {
   const s = new URLSearchParams(params).toString()
   return s ? `?${s}` : ''
 }
+
+// ---------------------------------------------------------------------------
+// Citizen (anonymous) API — per the research paper, citizens have no account.
+// These calls send NO Authorization header and never redirect to /login on
+// auth errors. Thrown errors carry `.status` so the wizard can branch on
+// 409 (duplicate) / 422 (rule inactive); `.isNetwork` flags connectivity loss.
+// ---------------------------------------------------------------------------
+async function publicRequest(path, { timeoutMs = 60000, ...options } = {}) {
+  // Abort a stalled request instead of spinning indefinitely (e.g. a flaky
+  // mobile upload). The caller's UI surfaces a retryable error.
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+
+  let res
+  try {
+    res = await fetch(`${BASE}${path}`, { ...options, signal: controller.signal })
+  } catch (e) {
+    const err = e?.name === 'AbortError'
+      ? new Error('This is taking too long — please check your connection and try again.')
+      : new Error('Network error — check your connection.')
+    err.isNetwork = true
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
+
+  let json
+  try {
+    json = await res.json()
+  } catch {
+    json = {}
+  }
+
+  if (!res.ok) {
+    const msg = json.message ?? json.error ?? json.errors?.[0]?.msg ?? 'Request failed'
+    const err = new Error(msg)
+    err.status = res.status
+    throw err
+  }
+
+  return json.data ?? json
+}
+
+const jsonPost = (path, body) =>
+  publicRequest(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+export const citizen = {
+  // Reference data (already public on the backend)
+  streets:        () =>          publicRequest('/api/streets'),
+  violationTypes: (streetId) =>  publicRequest(`/api/streets/${streetId}/violation-types`),
+
+  // Photo upload — multipart/form-data, field "photo". Let the browser set the
+  // multipart boundary, so no Content-Type header here.
+  uploadPhoto: (file) => {
+    const form = new FormData()
+    form.append('photo', file)
+    return publicRequest('/api/upload/photo', { method: 'POST', body: form })
+  },
+
+  // Preview steps (no report created yet)
+  ocrPreview:     (photo_url) => jsonPost('/api/reports/ocr', { photo_url }),
+  penaltyPreview: (plate) =>     jsonPost('/api/reports/penalty-preview', { plate }),
+
+  // Submission pipeline
+  createReport:  (body) => jsonPost('/api/reports', body),
+  confirmReport: (body) => jsonPost('/api/reports/confirm', body),
+  // Anonymous reads require the per-report access token (?token=...).
+  getReport:     (id, token) =>
+    publicRequest(`/api/reports/${id}${token ? `?token=${encodeURIComponent(token)}` : ''}`),
+
+  // FCM token registration (anonymous) — best-effort, see CitizenLayout
+  registerToken: (fcm_token) => jsonPost('/api/notifications/register-token', { fcm_token }),
+}
+
+// localStorage helpers for the anonymous citizen identity.
+const REPORTS_KEY = 'parkwatch_reports'
+const ALIAS_KEY   = 'parkwatch_alias'
+const TOKENS_KEY  = 'parkwatch_report_tokens'  // { [report_id]: access_token }
+const FCM_KEY     = 'parkwatch_fcm_token'       // set by services/fcm.js
+
+export const citizenStore = {
+  getReportIds() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(REPORTS_KEY) ?? '[]')
+      return Array.isArray(raw) ? raw.filter((n) => Number.isInteger(n)) : []
+    } catch {
+      return []
+    }
+  },
+  // Records a submitted report id and its access token together.
+  addReportId(id, token) {
+    const ids = citizenStore.getReportIds()
+    if (!ids.includes(id)) {
+      ids.push(id)
+      localStorage.setItem(REPORTS_KEY, JSON.stringify(ids))
+    }
+    if (token) {
+      const map = citizenStore._tokens()
+      map[id] = token
+      localStorage.setItem(TOKENS_KEY, JSON.stringify(map))
+    }
+  },
+  getToken(id) {
+    return citizenStore._tokens()[id] ?? null
+  },
+  _tokens() {
+    try {
+      const m = JSON.parse(localStorage.getItem(TOKENS_KEY) ?? '{}')
+      return m && typeof m === 'object' ? m : {}
+    } catch {
+      return {}
+    }
+  },
+  getAlias() {
+    return localStorage.getItem(ALIAS_KEY) || null
+  },
+  setAlias(alias) {
+    if (alias) localStorage.setItem(ALIAS_KEY, alias)
+  },
+  getFcmToken() {
+    return localStorage.getItem(FCM_KEY) || null
+  },
+}

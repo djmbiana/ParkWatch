@@ -73,6 +73,10 @@ export default function BarangayQueue() {
       render: (v, row) => <PlateBadge plate={v} confidence={row.ocr_confidence_score} manual={row.manual_plate_input} />,
     },
     { key: 'street_name', label: 'Street' },
+    {
+      key: 'barangay_name', label: 'Barangay',
+      render: (v) => <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{v ?? '—'}</span>,
+    },
     { key: 'violation_type', label: 'Violation Type' },
     {
       key: 'ocr_confidence_score', label: 'OCR Confidence',

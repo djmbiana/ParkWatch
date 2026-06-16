@@ -1,0 +1,19 @@
+// Shared formatters for the citizen app.
+
+// "Sep 14, 2025 · 10:30 AM" — the timestamp format used throughout the
+// citizen screens (matches the research paper's report mockups).
+export function formatDateTime(value) {
+  if (!value) return null
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return null
+  const date = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+  return `${date} · ${time}`
+}
+
+// Philippine plate format: private "ABC 1234", motorcycle "ABC 12-3456".
+export const PLATE_RE = /^[A-Z]{3} \d{4}$|^[A-Z]{3} \d{2}-\d{4}$/
+
+export function isValidPlate(value) {
+  return PLATE_RE.test((value ?? '').trim().toUpperCase())
+}

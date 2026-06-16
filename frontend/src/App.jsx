@@ -8,7 +8,14 @@ import Login from "./pages/Login"
 import Register from "./pages/Register"
 import RoleRoute from "./components/RoleRoute"
 
+// Citizen app (public, anonymous — no auth per research paper p.118)
+import CitizenLayout from "./pages/citizen/CitizenLayout"
 import CitizenHome from "./pages/citizen/CitizenHome"
+import ReportWizard from "./pages/citizen/ReportWizard"
+import MyReports from "./pages/citizen/MyReports"
+import ReportDetail from "./pages/citizen/ReportDetail"
+import Alerts from "./pages/citizen/Alerts"
+import Account from "./pages/citizen/Account"
 
 // Barangay portal
 import BarangayLayout from "./pages/barangay/BarangayLayout"
@@ -55,10 +62,15 @@ export default function App() {
         <Route path="/login"    element={<Login />} />
         <Route path="/register" element={<Register />} />
 
-        {/* Citizen */}
-        <Route path="/citizen" element={
-          <RoleRoute allowedRoles={["citizen"]}><CitizenHome /></RoleRoute>
-        } />
+        {/* Citizen — public, no auth guard (anonymous reporting) */}
+        <Route path="/citizen" element={<CitizenLayout />}>
+          <Route index               element={<CitizenHome />} />
+          <Route path="report"        element={<ReportWizard />} />
+          <Route path="reports"       element={<MyReports />} />
+          <Route path="reports/:reportId" element={<ReportDetail />} />
+          <Route path="alerts"        element={<Alerts />} />
+          <Route path="account"       element={<Account />} />
+        </Route>
 
         {/* Barangay */}
         <Route path="/barangay" element={

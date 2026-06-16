@@ -11,6 +11,8 @@
  *   counter update → 8. notify & return.
  */
 
+const crypto = require('crypto');
+
 const { validationResult } = require('express-validator');
 
 const { pool } = require('../config/db');
@@ -32,6 +34,27 @@ const duplicateWindowMinutes = () =>
 // for consistency with the rest of the API envelope.
 const fail = (res, statusCode, error) =>
   res.status(statusCode).json({ success: false, error, message: error });
+
+// Public handle for anonymous reporters, per the paper's "Reporter #XXXX"
+// format (p.122). Anonymous submitters have no USERS row, so the alias is
+// generated here and stored on the report itself.
+const ALIAS_RE = /^Reporter #\d{4}$/;
+const generateAlias = () =>
+  `Reporter #${String(Math.floor(1000 + Math.random() * 9000))}`;
+
+// Resolve the alias to store on an anonymous report: reuse the client-supplied
+// one when it matches the expected format (so a device's reports share a
+// handle), otherwise mint a fresh one.
+const resolveAnonymousAlias = (provided) =>
+  provided && ALIAS_RE.test(provided.trim()) ? provided.trim() : generateAlias();
+
+// Constant-time compare of a client-supplied access token against the stored one.
+const tokenMatches = (provided, actual) => {
+  if (typeof provided !== 'string' || typeof actual !== 'string' || !provided || !actual) return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(actual);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+};
 
 const handleValidation = (req, res) => {
   const errors = validationResult(req);
@@ -69,9 +92,13 @@ const findActiveRule = async (streetId, violationType) => {
  */
 const finishPipeline = async (res, ctx) => {
   const {
-    plate, citizenId, streetId, barangayId, violationType,
+    plate, citizenId, anonymousAlias, fcmToken, streetId, barangayId, violationType,
     photoPath, ocrRawResponse, ocrExtractedPlate, ocrConfidenceScore, manualPlateInput,
   } = ctx;
+
+  // Unguessable bearer token so anonymous submitters (and only they) can read
+  // their report by id. crypto.randomBytes(32) → 64 hex chars (fits VARCHAR(64)).
+  const accessToken = crypto.randomBytes(32).toString('hex');
 
   // Step 5 — duplicate detection: same plate + street within the rolling
   // window, ignoring rejected reports.
@@ -129,14 +156,30 @@ const finishPipeline = async (res, ctx) => {
   try {
     await connection.beginTransaction();
 
+    // Link the submitting device's FCM token (anonymous push delivery, UC-03).
+    // Upsert keyed by hash; LAST_INSERT_ID() yields the row id on insert OR update.
+    let fcmTokenId = null;
+    if (fcmToken) {
+      const [tokenRow] = await connection.execute(
+        `INSERT INTO PUBLIC_FCM_TOKENS (token_hash, token, last_seen_at)
+           VALUES (SHA2(?, 256), ?, NOW())
+         ON DUPLICATE KEY UPDATE last_seen_at = NOW(), token_id = LAST_INSERT_ID(token_id)`,
+        [fcmToken, fcmToken]
+      );
+      fcmTokenId = tokenRow.insertId || null;
+    }
+
     const [inserted] = await connection.execute(
       `INSERT INTO VIOLATION_REPORTS
-         (citizen_id, vehicle_id, street_id, barangay_id, violation_type, photo_path,
+         (citizen_id, anonymous_alias, access_token, fcm_token_id, vehicle_id, street_id, barangay_id, violation_type, photo_path,
           ocr_raw_response, ocr_extracted_plate, ocr_confidence_score,
           manual_plate_input, penalty_tier_id, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
         citizenId,
+        anonymousAlias,
+        accessToken,
+        fcmTokenId,
         vehicle.vehicle_id,
         streetId,
         barangayId,
@@ -180,6 +223,8 @@ const finishPipeline = async (res, ctx) => {
     data: {
       report_id: reportId,
       status: 'pending',
+      anonymous_alias: anonymousAlias,
+      access_token: accessToken,
       penalty_tier: tier
         ? {
             tier_id: tier.tier_id,
@@ -203,7 +248,10 @@ const create = async (req, res, next) => {
 
   const { photo_url, violation_type } = req.body;
   const streetId = parseInt(req.body.street_id, 10);
-  const citizenId = req.user.id;
+  // Anonymous submission (paper p.118): citizen_id is null unless a token was
+  // sent. The alias is stored on the report so it can be shown without a USERS row.
+  const citizenId = req.user?.id ?? null;
+  const anonymousAlias = resolveAnonymousAlias(req.body.anonymous_alias);
 
   try {
     // Step 1 — parking-rule validation
@@ -216,11 +264,39 @@ const create = async (req, res, next) => {
     // object path is what gets stored in VIOLATION_REPORTS.photo_path.
     const { objectPath } = storageService.parsePhotoRef(photo_url);
 
-    // Step 2 — OCR
-    const ocr = await ocrService.extractPlate(photo_url);
+    // Primary flow: the client sends the citizen-confirmed plate. OCR already
+    // ran via POST /api/reports/ocr and the citizen reviewed (and possibly
+    // edited) it, so we trust the confirmed value and record whether it was
+    // edited away from the OCR reading (manual_plate_input) for the verifiers.
+    if (req.body.plate != null && String(req.body.plate).trim() !== '') {
+      const { valid, normalized } = await ocrService.validatePlateFormat(req.body.plate);
+      if (!valid) return fail(res, 422, 'Plate number format is invalid.');
 
-    // Step 3 — plate determination: low confidence or no plate → frontend
-    // prompts the citizen, then resumes via POST /api/reports/confirm.
+      let ocrNormalized = null;
+      if (req.body.ocr_extracted_plate) {
+        const r = await ocrService.validatePlateFormat(req.body.ocr_extracted_plate);
+        ocrNormalized = r.valid ? r.normalized : String(req.body.ocr_extracted_plate).trim().toUpperCase();
+      }
+      const edited = !ocrNormalized || ocrNormalized !== normalized;
+
+      return await finishPipeline(res, {
+        plate: normalized,
+        citizenId,
+        anonymousAlias,
+        fcmToken: req.body.fcm_token,
+        streetId,
+        barangayId: rule.barangay_id,
+        violationType: violation_type,
+        photoPath: objectPath,
+        ocrRawResponse: null,
+        ocrExtractedPlate: ocrNormalized,
+        ocrConfidenceScore: req.body.ocr_confidence_score ?? null,
+        manualPlateInput: edited ? normalized : null,
+      });
+    }
+
+    // Legacy flow (direct API use without the preview step): OCR at submit.
+    const ocr = await ocrService.extractPlate(photo_url);
     if (ocr.needs_manual_review) {
       return res.status(200).json({
         success: true,
@@ -236,16 +312,16 @@ const create = async (req, res, next) => {
       });
     }
 
-    // Step 4 — format validation
     const { valid, normalized } = await ocrService.validatePlateFormat(ocr.extracted_plate);
     if (!valid) {
       return fail(res, 422, 'Plate number format is invalid.');
     }
 
-    // Steps 5–8
     return await finishPipeline(res, {
       plate: normalized,
       citizenId,
+      anonymousAlias,
+      fcmToken: req.body.fcm_token,
       streetId,
       barangayId: rule.barangay_id,
       violationType: violation_type,
@@ -254,6 +330,79 @@ const create = async (req, res, next) => {
       ocrExtractedPlate: normalized,
       ocrConfidenceScore: ocr.confidence_score,
       manualPlateInput: null,
+    });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// POST /api/reports/ocr
+// Runs OCR on an already-uploaded photo and returns the extracted plate +
+// confidence WITHOUT creating a report. Drives the Step-2 plate-review card
+// (citizen confirms "is this right?" / edits before submitting).
+// ---------------------------------------------------------------------------
+const ocrPreview = async (req, res, next) => {
+  const { photo_url } = req.body;
+  if (!photo_url) return fail(res, 400, 'photo_url is required.');
+
+  try {
+    storageService.parsePhotoRef(photo_url); // 400 unless it's our bucket
+    const ocr = await ocrService.extractPlate(photo_url);
+
+    // Pre-fill with the strict plate when found, otherwise the loose guess so
+    // the citizen can correct it rather than type from scratch.
+    return res.json({
+      success: true,
+      message: 'OCR complete.',
+      data: {
+        extracted_plate: ocr.extracted_plate || ocr.best_guess || null,
+        confidence_score: ocr.confidence_score ?? ocr.guess_confidence ?? null,
+        needs_manual_review: !!ocr.needs_manual_review,
+      },
+    });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// POST /api/reports/penalty-preview  { plate }
+// Returns the penalty tier a plate would draw given its CURRENT district-wide
+// violation count — shown on the review screen before submitting.
+// ---------------------------------------------------------------------------
+const penaltyPreview = async (req, res, next) => {
+  const { plate } = req.body;
+  if (!plate) return fail(res, 400, 'plate is required.');
+
+  try {
+    const { valid, normalized } = await ocrService.validatePlateFormat(plate);
+    if (!valid) return fail(res, 422, 'Plate number format is invalid.');
+
+    const [[vehicle]] = await pool.execute(
+      'SELECT total_violations FROM VEHICLES WHERE plate_number = ? LIMIT 1',
+      [normalized]
+    );
+    const count = vehicle ? vehicle.total_violations : 0;
+
+    const [[tier]] = await pool.execute(
+      `SELECT tier_name, fine_amount, requires_clamping
+         FROM PENALTY_TIERS
+        WHERE min_violations <= ? AND (max_violations IS NULL OR max_violations >= ?)
+        ORDER BY min_violations DESC
+        LIMIT 1`,
+      [count, count]
+    );
+
+    return res.json({
+      success: true,
+      message: 'Success',
+      data: {
+        offense_count: count + 1,
+        penalty_tier: tier
+          ? { tier_name: tier.tier_name, fine_amount: Number(tier.fine_amount), requires_clamping: !!tier.requires_clamping }
+          : null,
+      },
     });
   } catch (err) {
     return next(err);
@@ -274,7 +423,8 @@ const confirm = async (req, res, next) => {
     ocr_extracted_plate, ocr_confidence_score, ocr_raw_response,
   } = req.body;
   const streetId = parseInt(req.body.street_id, 10);
-  const citizenId = req.user.id;
+  const citizenId = req.user?.id ?? null;
+  const anonymousAlias = resolveAnonymousAlias(req.body.anonymous_alias);
 
   try {
     // Re-run Step 1: confirm is a separate request, so the rule must be
@@ -296,6 +446,8 @@ const confirm = async (req, res, next) => {
     return await finishPipeline(res, {
       plate: normalized,
       citizenId,
+      anonymousAlias,
+      fcmToken: req.body.fcm_token,
       streetId,
       barangayId: rule.barangay_id,
       violationType: violation_type,
@@ -374,14 +526,14 @@ const getById = async (req, res, next) => {
       `SELECT r.report_id, r.citizen_id, r.vehicle_id, r.street_id, r.barangay_id,
               r.violation_type, r.photo_path, r.ocr_extracted_plate, r.ocr_confidence_score,
               r.manual_plate_input, r.status, r.resolution_outcome, r.rejection_reason,
-              r.is_escalated, r.ticket_reference,
+              r.is_escalated, r.ticket_reference, r.access_token,
               r.submitted_at, r.verified_at, r.acknowledged_at, r.dispatched_at,
               r.escalated_at, r.resolved_at,
               s.street_name, s.barangay_id AS street_barangay_id,
               b.barangay_name,
               t.tier_name, t.fine_amount, t.requires_clamping,
               v.plate_number, v.total_violations, v.is_repeat_offender,
-              u.anonymous_alias
+              COALESCE(r.anonymous_alias, u.anonymous_alias) AS anonymous_alias
          FROM VIOLATION_REPORTS r
          LEFT JOIN STREETS s        ON s.street_id   = r.street_id
          LEFT JOIN BARANGAYS b      ON b.barangay_id = COALESCE(r.barangay_id, s.barangay_id)
@@ -397,16 +549,18 @@ const getById = async (req, res, next) => {
       return fail(res, 404, 'Report not found.');
     }
 
-    // Role-based access
-    const { role } = req.user;
-    if (role === 'citizen' && report.citizen_id !== req.user.id) {
-      return fail(res, 403, 'You can only view your own reports.');
-    }
-    if (role === 'brgy_official') {
-      const reportBarangay = report.barangay_id ?? report.street_barangay_id;
-      if (!req.user.barangay_id || reportBarangay !== req.user.barangay_id) {
-        return fail(res, 403, 'You can only view reports for streets in your barangay.');
+    // Access control: a valid staff/citizen JWT (with the existing role scoping)
+    // OR, for anonymous callers, the report's access token (?token=...).
+    const role = req.user?.role;
+    if (req.user) {
+      // Citizens (if logged in) only see their own; all staff — including
+      // barangay officials — share the cross-barangay database and may view
+      // any report (paper's cross-barangay violation tracking).
+      if (role === 'citizen' && report.citizen_id !== req.user.id) {
+        return fail(res, 403, 'You can only view your own reports.');
       }
+    } else if (!tokenMatches(req.query.token, report.access_token)) {
+      return fail(res, 401, 'A valid access token is required to view this report.');
     }
 
     // Presigned GCS URL (15 min). Falls back to the plain object URL when
@@ -485,4 +639,4 @@ const getById = async (req, res, next) => {
   }
 };
 
-module.exports = { create, confirm, mine, getById };
+module.exports = { create, confirm, mine, getById, ocrPreview, penaltyPreview };

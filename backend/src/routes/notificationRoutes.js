@@ -1,10 +1,13 @@
 const express = require('express');
 
+const notificationController = require('../controllers/notificationController');
+const { optionalAuthenticate } = require('../middleware/auth');
+
 const router = express.Router();
 
-// Notification endpoints (list, mark-as-read, register FCM token) — implemented in a later sprint.
-// Example:
-//   const notificationController = require('../controllers/notificationController');
-//   router.get('/', authenticate, notificationController.list);
+// POST /register-token — anonymous FCM device-token registration (UC-03).
+// Public: citizens report without an account. optionalAuthenticate is harmless
+// and lets a logged-in caller's token be associated later if needed.
+router.post('/register-token', optionalAuthenticate, notificationController.registerToken);
 
 module.exports = router;

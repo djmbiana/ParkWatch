@@ -24,4 +24,24 @@ const authenticate = (req, res, next) => {
   }
 };
 
-module.exports = { authenticate };
+// Like authenticate(), but never blocks. If a valid Bearer token is present it
+// attaches req.user; otherwise the request proceeds anonymously (req.user
+// stays undefined). Used by endpoints that anonymous citizens may call but that
+// also behave differently for authenticated staff (e.g. role-scoped report
+// detail — see reportController.getById).
+const optionalAuthenticate = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) return next();
+
+  try {
+    req.user = jwt.verify(token, process.env.JWT_SECRET);
+  } catch {
+    // Ignore an invalid/expired token here — treat the caller as anonymous
+    // rather than rejecting, since auth is optional for this route.
+  }
+  return next();
+};
+
+module.exports = { authenticate, optionalAuthenticate };

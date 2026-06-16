@@ -73,6 +73,35 @@ body {
   --sidebar-accent: var(--accent);
 }
 
+/* Citizen mobile app tokens (scoped to the citizen web app) */
+.citizen-app {
+  --c-primary:    #1D4ED8;
+  --c-primary-dk: #1E3A8A;
+  --c-primary-lt: #EFF6FF;
+  --c-success:    #059669;
+  --c-success-lt: #ECFDF5;
+  --c-warning:    #D97706;
+  --c-warning-lt: #FFFBEB;
+  --c-danger:     #DC2626;
+  --c-danger-lt:  #FEF2F2;
+  --c-bg:         #F8FAFC;
+  --c-surface:    #FFFFFF;
+  --c-border:     #E2E8F0;
+  --c-text:       #0F172A;
+  --c-muted:      #64748B;
+  --c-nav-height: 64px;
+  /* Lets the shared LoadingSpinner (border-top-color: var(--accent)) render
+     in the citizen palette when no explicit color is passed. */
+  --accent: var(--c-primary);
+}
+
+/* Confirmation checkmark pop-in */
+@keyframes citizen-check-pop {
+  from { transform: scale(0); }
+  to   { transform: scale(1); }
+}
+.citizen-check-pop { animation: citizen-check-pop 300ms ease-out; }
+
 /* Portal accent overrides */
 .portal-barangay   { --accent: #2563EB; --accent-hover: #1D4ED8; --accent-soft: #EFF6FF; }
 .portal-mtpb       { --accent: #D97706; --accent-hover: #B45309; --accent-soft: #FFFBEB; }

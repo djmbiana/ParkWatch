@@ -27,7 +27,6 @@ function sign(payload) {
 }
 
 const citizenToken = () => sign({ id: CITIZEN_ID, role: 'citizen', barangay_id: null });
-const officerToken = () => sign({ id: 2, role: 'mtpb_officer', barangay_id: 1 });
 
 beforeEach(() => {
   storageService.uploadBuffer.mockReset();
@@ -35,20 +34,16 @@ beforeEach(() => {
 });
 
 describe('POST /api/upload/photo', () => {
-  it('returns 401 without a token', async () => {
-    const res = await request(app).post('/api/upload/photo');
-    expect(res.status).toBe(401);
-    expect(res.body.success).toBe(false);
-  });
-
-  it('returns 403 for a non-citizen role', async () => {
+  it('uploads anonymously (no token) — citizens submit without an account', async () => {
     const res = await request(app)
       .post('/api/upload/photo')
-      .set('Authorization', `Bearer ${officerToken()}`)
       .attach('photo', Buffer.from('fake-image-bytes'), { filename: 'plate.jpg', contentType: 'image/jpeg' });
 
-    expect(res.status).toBe(403);
-    expect(storageService.uploadBuffer).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ success: true, data: { photo_url: FAKE_URL } });
+    // Anonymous uploads are bucketed under photos/anonymous/.
+    const [, destination] = storageService.uploadBuffer.mock.calls[0];
+    expect(destination).toMatch(/^photos\/anonymous\/\d+_plate\.jpg$/);
   });
 
   it('returns 400 when no file is attached', async () => {

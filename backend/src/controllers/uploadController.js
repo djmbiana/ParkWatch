@@ -19,7 +19,9 @@ const uploadPhoto = async (req, res, next) => {
     const safeName = path
       .basename(req.file.originalname)
       .replace(/[^a-zA-Z0-9._-]/g, '_');
-    const destination = `photos/${req.user.id}/${Date.now()}_${safeName}`;
+    // Anonymous citizens have no account, so bucket uploads under "anonymous".
+    const owner = req.user?.id ?? 'anonymous';
+    const destination = `photos/${owner}/${Date.now()}_${safeName}`;
 
     const photo_url = await storageService.uploadBuffer(
       req.file.buffer,
