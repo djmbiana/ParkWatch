@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS STREETS (
   street_id   INT          NOT NULL AUTO_INCREMENT,
   barangay_id INT          NOT NULL,
   street_name VARCHAR(100) NOT NULL,
+  latitude    DECIMAL(10, 7),                    -- [ext] for the violation density heat map
+  longitude   DECIMAL(10, 7),                    -- [ext]
   is_active   BOOLEAN      NOT NULL DEFAULT TRUE,
   created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,

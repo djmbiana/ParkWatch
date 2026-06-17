@@ -315,8 +315,47 @@ const repeatOffenders = async (req, res, next) => {
   } catch (err) { return next(err); }
 };
 
+// ---------------------------------------------------------------------------
+// GET /api/reports/analytics/violation-map
+// Per-street violation counts (with coordinates) for the supervisor heat map.
+// Excludes rejected reports; only streets with coordinates and ≥1 violation.
+// ---------------------------------------------------------------------------
+const violationMap = async (req, res, next) => {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT s.street_id, s.street_name, b.barangay_name,
+              s.latitude, s.longitude,
+              COUNT(r.report_id) AS violation_count
+         FROM STREETS s
+         LEFT JOIN BARANGAYS b ON b.barangay_id = s.barangay_id
+         LEFT JOIN VIOLATION_REPORTS r
+                ON r.street_id = s.street_id AND r.status <> 'rejected'
+        WHERE s.latitude IS NOT NULL AND s.longitude IS NOT NULL
+        GROUP BY s.street_id, s.street_name, b.barangay_name, s.latitude, s.longitude
+       HAVING violation_count > 0
+        ORDER BY violation_count DESC`
+    );
+
+    return res.json({
+      success: true,
+      message: 'Success',
+      data: rows.map((r) => ({
+        street_id: r.street_id,
+        street_name: r.street_name,
+        barangay_name: r.barangay_name,
+        // Same-named streets in different barangays share approximate seed
+        // coordinates; a small deterministic per-street offset (~tens of metres)
+        // separates their markers so they don't stack on the exact same point.
+        latitude: Number(r.latitude) + ((r.street_id % 7) - 3) * 0.00035,
+        longitude: Number(r.longitude) + ((r.street_id % 5) - 2) * 0.00035,
+        violation_count: Number(r.violation_count),
+      })),
+    });
+  } catch (err) { return next(err); }
+};
+
 module.exports = {
   barangayQueue, barangayStats, verify,
   mtpbQueue, acknowledge, dispatch, resolve, assign,
-  analyticsSummary, repeatOffenders,
+  analyticsSummary, repeatOffenders, violationMap,
 };

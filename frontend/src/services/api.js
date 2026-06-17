@@ -60,6 +60,8 @@ export const auth = {
   register: (fields) =>
     request('/api/v1/auth/register', { method: 'POST', body: JSON.stringify(fields) }),
   me: () => request('/api/v1/auth/me'),
+  updateProfile: (fields) =>
+    request('/api/users/me', { method: 'PATCH', body: JSON.stringify(fields) }),
 }
 
 // Reports — barangay
@@ -69,6 +71,7 @@ export const reports = {
   mtpbQueue:      (params = {}) => request(`/api/reports/queue/mtpb${qs(params)}`),
   analyticsSum:   (params = {}) => request(`/api/reports/analytics/summary${qs(params)}`),
   repeatOffenders:() => request('/api/reports/analytics/repeat-offenders'),
+  violationMap:   () => request('/api/reports/analytics/violation-map', { cache: 'no-store' }),
   getById:        (id) => request(`/api/reports/${id}`),
   verify:         (id, body) => request(`/api/reports/${id}/verify`,      { method: 'PATCH', body: JSON.stringify(body) }),
   acknowledge:    (id) =>       request(`/api/reports/${id}/acknowledge`, { method: 'PATCH' }),

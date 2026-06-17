@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { Outlet } from 'react-router-dom'
-import { LayoutGrid, AlertTriangle, FileText, Users } from 'lucide-react'
+import { LayoutGrid, AlertTriangle, FileText, Users, User } from 'lucide-react'
 import PortalLayout from '../../components/PortalLayout'
 import { getStoredUser } from '../../utils/auth'
 import { reports } from '../../services/api'
@@ -22,6 +22,7 @@ export default function SupervisorLayout() {
     { to: '/mtpb/supervisor/escalated', label: 'Escalated Reports',  icon: AlertTriangle, badge: escalatedCount },
     { to: '/mtpb/supervisor/reports',   label: 'Reports',            icon: FileText },
     { to: '/mtpb/supervisor/officers',  label: 'Officers',           icon: Users },
+    { to: '/mtpb/supervisor/profile',   label: 'Profile',            icon: User },
   ]
 
   return (

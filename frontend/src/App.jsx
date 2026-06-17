@@ -29,7 +29,7 @@ import OfficerLayout from "./pages/mtpb/OfficerLayout"
 import OfficerQueue from "./pages/mtpb/OfficerQueue"
 import OfficerReportDetail from "./pages/mtpb/OfficerReportDetail"
 import OfficerPlateSearch from "./pages/mtpb/OfficerPlateSearch"
-import OfficerProfile from "./pages/mtpb/OfficerProfile"
+import ProfilePage from "./pages/ProfilePage"
 
 // MTPB Supervisor portal
 import SupervisorLayout from "./pages/mtpb/SupervisorLayout"
@@ -80,6 +80,7 @@ export default function App() {
           <Route path="queue"            element={<BarangayQueue />} />
           <Route path="reports/:reportId" element={<BarangayReportDetail />} />
           <Route path="plate-search"     element={<BarangayPlateSearch />} />
+          <Route path="profile"          element={<ProfilePage />} />
         </Route>
 
         {/* MTPB Officer */}
@@ -90,7 +91,7 @@ export default function App() {
           <Route path="queue"             element={<OfficerQueue />} />
           <Route path="reports/:reportId" element={<OfficerReportDetail />} />
           <Route path="plate-search"      element={<OfficerPlateSearch />} />
-          <Route path="profile"           element={<OfficerProfile />} />
+          <Route path="profile"           element={<ProfilePage />} />
         </Route>
 
         {/* MTPB Supervisor */}
@@ -101,6 +102,7 @@ export default function App() {
           <Route path="escalated" element={<SupervisorEscalated />} />
           <Route path="reports"   element={<SupervisorReports />} />
           <Route path="officers"  element={<SupervisorOfficers />} />
+          <Route path="profile"   element={<ProfilePage />} />
         </Route>
 
         {/* Admin */}
@@ -113,6 +115,7 @@ export default function App() {
           <Route path="streets"        element={<AdminStreets />} />
           <Route path="penalty-tiers"  element={<AdminPenaltyTiers />} />
           <Route path="audit"          element={<AdminAudit />} />
+          <Route path="profile"        element={<ProfilePage />} />
         </Route>
 
         {/* Fallback */}

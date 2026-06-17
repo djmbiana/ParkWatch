@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Outlet } from 'react-router-dom'
-import { Users, MapPin, Map, Shield, FileText } from 'lucide-react'
+import { Users, MapPin, Map, Shield, FileText, User } from 'lucide-react'
 import PortalLayout from '../../components/PortalLayout'
 
 export default function AdminLayout() {
@@ -12,6 +12,7 @@ export default function AdminLayout() {
     { to: '/admin/streets',       label: 'Streets & Rules',    icon: Map },
     { to: '/admin/penalty-tiers', label: 'Penalty Tiers',      icon: Shield },
     { to: '/admin/audit',         label: 'Audit Log',          icon: FileText },
+    { to: '/admin/profile',       label: 'Profile',            icon: User },
   ]
 
   return (

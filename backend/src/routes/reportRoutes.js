@@ -59,6 +59,7 @@ router.patch('/:reportId/assign',      authenticate, authorize(ROLES.MTPB_SUPERV
 // --- Analytics (supervisor / admin) --------------------------------------
 router.get('/analytics/summary',          authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), queueController.analyticsSummary);
 router.get('/analytics/repeat-offenders', authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), queueController.repeatOffenders);
+router.get('/analytics/violation-map',    authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), queueController.violationMap);
 
 // --- Report detail (role-scoped) — must be last to avoid matching above ----
 // optionalAuthenticate: anonymous citizens track their own report by its id

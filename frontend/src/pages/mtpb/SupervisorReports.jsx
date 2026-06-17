@@ -6,6 +6,7 @@ import { useToast } from '../../components/ToastContext'
 import StatCard from '../../components/StatCard'
 import PlateBadge from '../../components/PlateBadge'
 import LoadingSpinner from '../../components/LoadingSpinner'
+import ViolationHeatMap from '../../components/ViolationHeatMap'
 
 function downloadCsv(filename, rows) {
   const csv = Papa.unparse(rows)
@@ -154,26 +155,8 @@ export default function SupervisorReports() {
         </div>
       </div>
 
-      {/* Map placeholder */}
-      <div style={{
-        border: '2px dashed var(--color-border)',
-        borderRadius: 'var(--radius-lg)',
-        padding: '40px 20px',
-        textAlign: 'center',
-        marginBottom: 24,
-      }}>
-        <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-muted)', marginBottom: 8 }}>
-          Street-Level Violation Density Map
-        </div>
-        <div style={{
-          display: 'inline-flex', alignItems: 'center', gap: 6,
-          padding: '4px 12px', borderRadius: 999,
-          background: 'var(--color-border)', fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)',
-          textTransform: 'uppercase', letterSpacing: '0.05em',
-        }}>
-          Coming in ISPROJ2
-        </div>
-      </div>
+      {/* Street-level violation density heat map */}
+      <ViolationHeatMap />
 
       {/* Repeat offender table */}
       <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>

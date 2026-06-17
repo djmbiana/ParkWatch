@@ -63,6 +63,10 @@ app.use('/api/upload', require('./routes/uploadRoutes'));
 app.use('/api/reports', require('./routes/reportRoutes'));
 app.use('/api/streets', require('./routes/streetRoutes'));
 app.use('/api/vehicles', require('./routes/vehicleRoutes'));
+app.use('/api/admin', require('./routes/adminRoutes'));
+app.use('/api/notifications', require('./routes/notificationRoutes'));
+app.use('/api/users', require('./routes/userRoutes'));
+app.use('/api/barangays', require('./routes/barangayRoutes'));
 
 // ── 404 Handler ──────────────────────────────────────────
 app.use((req, res) => {
