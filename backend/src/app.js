@@ -18,14 +18,26 @@ app.set('trust proxy', 1);
 
 // ── Security & CORS ──────────────────────────────────────
 app.use(helmet());
+
+// Development origins allowed by default. Add ports here if a teammate's
+// Vite/preview server runs on something else.
+const DEV_ALLOWED_ORIGINS = [
+  'http://localhost:5173',   // Vite default
+  'http://127.0.0.1:5173',   // some browsers normalize to 127.0.0.1
+  'http://localhost:4173',   // Vite preview (vite preview)
+];
+
+const corsOrigin =
+  process.env.NODE_ENV === 'production'
+    ? (process.env.CORS_ORIGINS || '').split(',').filter(Boolean)
+    : DEV_ALLOWED_ORIGINS;
+
 app.use(
   cors({
-    origin:
-      process.env.NODE_ENV === 'production'
-        ? (process.env.CORS_ORIGINS || '').split(',').filter(Boolean)
-        : '*',
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    origin: corsOrigin,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true, // future-proof if the team switches to httpOnly cookies
   })
 );
 
