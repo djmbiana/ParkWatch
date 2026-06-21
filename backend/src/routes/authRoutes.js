@@ -1,4 +1,5 @@
 const express = require('express');
+const rateLimit = require('express-rate-limit');
 const { body } = require('express-validator');
 
 const authController = require('../controllers/authController');
@@ -6,6 +7,16 @@ const { authenticate } = require('../middleware/auth');
 const { authorize, ROLES } = require('../middleware/roleMiddleware');
 
 const router = express.Router();
+
+// Brute-force / credential-stuffing throttle for the credential endpoints (A.8,
+// E.4). Unlike the global limiter this runs in ALL environments. Per-IP.
+const authLimiter = rateLimit({
+  windowMs: parseInt(process.env.AUTH_RATE_LIMIT_WINDOW_MS, 10) || 15 * 60 * 1000, // 15 min
+  max: parseInt(process.env.AUTH_RATE_LIMIT_MAX, 10) || 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many attempts. Please try again later.' },
+});
 
 // --- Validators ----------------------------------------------------------
 const registerValidators = [
@@ -29,8 +40,8 @@ const loginValidators = [
 ];
 
 // --- Routes --------------------------------------------------------------
-router.post('/register', registerValidators, authController.register);
-router.post('/login',    loginValidators,    authController.login);
+router.post('/register', authLimiter, registerValidators, authController.register);
+router.post('/login',    authLimiter, loginValidators,    authController.login);
 router.get ('/me',       authenticate,       authController.me);
 
 // Test route for role-based access control — confirms authorize() middleware

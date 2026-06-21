@@ -12,7 +12,8 @@ const authenticate = (req, res, next) => {
   }
 
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET); // { id, role, barangay_id }
+    // Pin the algorithm so a forged token cannot downgrade to "none" (A.2).
+    req.user = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] }); // { id, role, barangay_id }
     next();
   } catch (err) {
     // TokenExpiredError needs a distinct message so the client knows to
@@ -36,7 +37,7 @@ const optionalAuthenticate = (req, res, next) => {
   if (!token) return next();
 
   try {
-    req.user = jwt.verify(token, process.env.JWT_SECRET);
+    req.user = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
   } catch {
     // Ignore an invalid/expired token here — treat the caller as anonymous
     // rather than rejecting, since auth is optional for this route.

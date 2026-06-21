@@ -24,12 +24,19 @@ const errorHandler = (err, req, res, next) => {
   }
 
   const statusCode = err.statusCode || 500;
-  const message = err.message || 'Internal server error.';
+  const isDev = process.env.NODE_ENV === 'development';
+
+  // Don't leak internal error text on unexpected 500s in production (D.3).
+  // Deliberate errors (those with a statusCode, e.g. 400/403/404/422) keep
+  // their message; only unhandled 500s are masked.
+  const message = (statusCode >= 500 && !isDev)
+    ? 'Internal server error.'
+    : (err.message || 'Internal server error.');
 
   res.status(statusCode).json({
     success: false,
     message,
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+    ...(isDev && { stack: err.stack }),
   });
 };
 

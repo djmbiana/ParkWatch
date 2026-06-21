@@ -9,6 +9,7 @@
 const { pool } = require('../config/db');
 const logger = require('../config/logger');
 const notificationService = require('../services/notificationService');
+const { sendPaginated } = require('../utils/response');
 
 const fail = (res, code, msg) => res.status(code).json({ success: false, message: msg });
 
@@ -74,14 +75,45 @@ function mapRow(r) {
 // with its barangay, so repeat offenders are visible across barangay lines.
 // ---------------------------------------------------------------------------
 const barangayQueue = async (req, res, next) => {
+  // FIX 3 (FR-12) — officials see only their own barangay's reports.
+  const barangayId = req.user.barangay_id;
+  if (barangayId == null) {
+    return res.status(403).json({
+      success: false,
+      error: 'No barangay assigned to your account. Contact the system administrator.',
+      message: 'No barangay assigned to your account. Contact the system administrator.',
+    });
+  }
   try {
     const [rows] = await pool.execute(
       `${REPORT_SELECT}
        WHERE r.status = 'pending'
-       ORDER BY r.submitted_at ASC`
+         AND COALESCE(r.barangay_id, s.barangay_id) = ?
+       ORDER BY v.is_repeat_offender DESC, r.submitted_at ASC`,
+      [barangayId]
     );
 
-    return res.json({ success: true, message: 'Success', data: rows.map(mapRow) });
+    const today = new Date().toISOString().slice(0, 10);
+    const [[stats]] = await pool.execute(
+      `SELECT
+         SUM(CASE WHEN r.status='pending'  AND DATE(r.submitted_at)=? THEN 1 ELSE 0 END) AS pending_today,
+         SUM(CASE WHEN r.status='verified' AND DATE(r.verified_at)=?  THEN 1 ELSE 0 END) AS verified_today,
+         SUM(CASE WHEN r.status='rejected' AND DATE(r.verified_at)=?  THEN 1 ELSE 0 END) AS rejected_today
+       FROM VIOLATION_REPORTS r
+       LEFT JOIN STREETS s ON s.street_id = r.street_id
+       WHERE COALESCE(r.barangay_id, s.barangay_id) = ?`,
+      [today, today, today, barangayId]
+    );
+
+    // Response carries reports + inline stats. Frontend already reads `data.reports`.
+    return res.json({ success: true, message: 'Success', data: {
+      reports: rows.map(mapRow),
+      stats: {
+        pending_today: Number(stats.pending_today ?? 0),
+        verified_today: Number(stats.verified_today ?? 0),
+        rejected_today: Number(stats.rejected_today ?? 0),
+      },
+    }});
   } catch (err) { return next(err); }
 };
 
@@ -89,17 +121,27 @@ const barangayQueue = async (req, res, next) => {
 // GET /api/reports/stats/barangay
 // ---------------------------------------------------------------------------
 const barangayStats = async (req, res, next) => {
+  // FIX 3 — scoped to the official's own barangay (FR-12).
+  const barangayId = req.user.barangay_id;
+  if (barangayId == null) {
+    return res.status(403).json({
+      success: false,
+      error: 'No barangay assigned to your account. Contact the system administrator.',
+      message: 'No barangay assigned to your account. Contact the system administrator.',
+    });
+  }
   try {
-    // District-wide stats — matches the shared cross-barangay queue above.
     const today = new Date().toISOString().slice(0, 10);
     const [[stats]] = await pool.execute(
       `SELECT
-         SUM(CASE WHEN r.status = 'pending' AND DATE(r.submitted_at) = ? THEN 1 ELSE 0 END) AS pending,
-         SUM(CASE WHEN r.status = 'verified' AND DATE(r.verified_at) = ? THEN 1 ELSE 0 END) AS verified,
-         SUM(CASE WHEN r.status = 'rejected' AND DATE(r.submitted_at) = ? THEN 1 ELSE 0 END) AS rejected,
+         SUM(CASE WHEN r.status = 'pending'  AND DATE(r.submitted_at) = ? THEN 1 ELSE 0 END) AS pending,
+         SUM(CASE WHEN r.status = 'verified' AND DATE(r.verified_at) = ?  THEN 1 ELSE 0 END) AS verified,
+         SUM(CASE WHEN r.status = 'rejected' AND DATE(r.verified_at) = ?  THEN 1 ELSE 0 END) AS rejected,
          COALESCE(AVG(CASE WHEN r.verified_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.verified_at) END), 0) AS avg_review_min
-       FROM VIOLATION_REPORTS r`,
-      [today, today, today]
+       FROM VIOLATION_REPORTS r
+       LEFT JOIN STREETS s ON s.street_id = r.street_id
+       WHERE COALESCE(r.barangay_id, s.barangay_id) = ?`,
+      [today, today, today, barangayId]
     );
 
     return res.json({ success: true, message: 'Success', data: {
@@ -114,38 +156,91 @@ const barangayStats = async (req, res, next) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/reports/:reportId/verify   { action: 'approve'|'reject', rejection_reason? }
 // ---------------------------------------------------------------------------
+// Philippine plate format — private "ABC 1234" or motorcycle "ABC 12-3456".
+const PLATE_RE = /^[A-Z]{3} \d{4}$|^[A-Z]{3} \d{2}-\d{4}$/;
+const RESPONSE_WINDOW_MIN = () =>
+  parseInt(process.env.MTPB_RESPONSE_WINDOW_MINUTES, 10)
+  || parseInt(process.env.MTPB_RESPONSE_TIMER_MINUTES, 10)
+  || 60;
+
 const verify = async (req, res, next) => {
   const reportId = parseInt(req.params.reportId, 10);
-  const { action, rejection_reason } = req.body;
+  const { action, rejection_reason, verified_plate } = req.body;
   if (!['approve', 'reject'].includes(action)) return fail(res, 400, 'action must be "approve" or "reject".');
-  if (action === 'reject' && (!rejection_reason || rejection_reason.trim().length < 10)) {
-    return fail(res, 400, 'rejection_reason must be at least 10 characters.');
+  // FIX 4 — missing rejection reason is a validation error (422), not a 400.
+  if (action === 'reject' && (!rejection_reason || !rejection_reason.trim())) {
+    return fail(res, 422, 'Rejection reason is required.');
+  }
+
+  // FIX 5 (UC-04 AF-2) — official may override the plate they visually verified.
+  let verifiedPlate = null;
+  if (action === 'approve' && verified_plate != null && String(verified_plate).trim() !== '') {
+    verifiedPlate = String(verified_plate).trim().toUpperCase();
+    if (!PLATE_RE.test(verifiedPlate)) return fail(res, 422, 'Invalid plate format for verified_plate.');
   }
 
   try {
     const [[report]] = await pool.execute(
-      'SELECT report_id, status, barangay_id, street_id FROM VIOLATION_REPORTS WHERE report_id = ? LIMIT 1',
+      `SELECT vr.report_id, vr.status, vr.street_id,
+              COALESCE(vr.barangay_id, s.barangay_id) AS eff_barangay
+         FROM VIOLATION_REPORTS vr
+         LEFT JOIN STREETS s ON s.street_id = vr.street_id
+        WHERE vr.report_id = ? LIMIT 1`,
       [reportId]
     );
     if (!report) return fail(res, 404, 'Report not found.');
     if (report.status !== 'pending') return fail(res, 409, 'Only pending reports can be verified.');
 
-    // Shared cross-barangay database: any barangay official may verify any
-    // pending report (no per-barangay restriction).
-
-    if (action === 'approve') {
-      await pool.execute(
-        `UPDATE VIOLATION_REPORTS SET status = 'verified', verified_by = ?, verified_at = NOW() WHERE report_id = ?`,
-        [req.user.id, reportId]
-      );
-    } else {
-      await pool.execute(
-        `UPDATE VIOLATION_REPORTS SET status = 'rejected', rejection_reason = ?, verified_by = ? WHERE report_id = ?`,
-        [rejection_reason.trim(), req.user.id, reportId]
-      );
+    // FIX 3 — scope to the official's own barangay (FR-12).
+    if (req.user.barangay_id == null) {
+      return fail(res, 403, 'No barangay assigned to your account. Contact the system administrator.');
+    }
+    if (report.eff_barangay !== req.user.barangay_id) {
+      return fail(res, 403, 'This report does not belong to your barangay.');
     }
 
-    return res.json({ success: true, message: `Report ${action}d.`, data: { report_id: reportId, action } });
+    if (action === 'approve') {
+      // Atomic: status update (+ optional plate override) and queue entry.
+      const connection = await pool.getConnection();
+      try {
+        await connection.beginTransaction();
+        await connection.execute(
+          `UPDATE VIOLATION_REPORTS
+              SET status = 'verified', verified_by = ?, verified_at = NOW(),
+                  manual_plate_input = COALESCE(?, manual_plate_input)
+            WHERE report_id = ?`,
+          [req.user.id, verifiedPlate, reportId]
+        );
+        await connection.execute(
+          `INSERT INTO MTPB_QUEUE (report_id, queued_at, response_deadline)
+             VALUES (?, NOW(), DATE_ADD(NOW(), INTERVAL ? MINUTE))
+           ON DUPLICATE KEY UPDATE queued_at = NOW(),
+             response_deadline = DATE_ADD(NOW(), INTERVAL ? MINUTE),
+             renotified = FALSE, renotified_at = NULL, is_escalated = FALSE,
+             escalated_at = NULL, escalation_reason = NULL`,
+          [reportId, RESPONSE_WINDOW_MIN(), RESPONSE_WINDOW_MIN()]
+        );
+        await connection.commit();
+      } catch (err) {
+        await connection.rollback();
+        throw err;
+      } finally {
+        connection.release();
+      }
+      await notificationService.send(null, reportId, 'verified');
+      return res.json({
+        success: true,
+        message: 'Report approved.',
+        data: { report_id: reportId, action, verified_plate_applied: verifiedPlate != null },
+      });
+    }
+
+    await pool.execute(
+      `UPDATE VIOLATION_REPORTS SET status = 'rejected', rejection_reason = ?, verified_by = ?, verified_at = NOW() WHERE report_id = ?`,
+      [rejection_reason.trim(), req.user.id, reportId]
+    );
+    await notificationService.send(null, reportId, 'rejected', { rejection_reason: rejection_reason.trim() });
+    return res.json({ success: true, message: 'Report rejected.', data: { report_id: reportId, action } });
   } catch (err) { return next(err); }
 };
 
@@ -155,12 +250,23 @@ const verify = async (req, res, next) => {
 // ---------------------------------------------------------------------------
 const mtpbQueue = async (req, res, next) => {
   try {
+    // FIX 6 — escalated reports belong to the supervisor queue; exclude them
+    // here. 'dispatched' stays so the assigned officer can resolve from here.
     const [rows] = await pool.execute(
       `${REPORT_SELECT}
-       WHERE r.status IN ('verified','acknowledged','dispatched','escalated')
-       ORDER BY r.is_escalated DESC, r.verified_at ASC`
+       WHERE r.status IN ('verified','acknowledged','dispatched')
+         AND r.is_escalated = FALSE
+       ORDER BY v.is_repeat_offender DESC, r.verified_at ASC`
     );
-    return res.json({ success: true, message: 'Success', data: rows.map(mapRow) });
+    const now = Date.now();
+    const data = rows.map((r) => {
+      const m = mapRow(r);
+      m.time_in_queue_minutes = r.verified_at
+        ? Math.max(0, Math.floor((now - new Date(r.verified_at).getTime()) / 60000))
+        : null;
+      return m;
+    });
+    return res.json({ success: true, message: 'Success', data });
   } catch (err) { return next(err); }
 };
 
@@ -179,6 +285,7 @@ const acknowledge = async (req, res, next) => {
       `UPDATE VIOLATION_REPORTS SET status='acknowledged', acknowledged_at=NOW(), assigned_officer_id=?, is_escalated=FALSE WHERE report_id=?`,
       [req.user.id, reportId]
     );
+    await notificationService.send(null, reportId, 'acknowledged');
     return res.json({ success: true, message: 'Report acknowledged.', data: { report_id: reportId } });
   } catch (err) { return next(err); }
 };
@@ -196,6 +303,7 @@ const dispatch = async (req, res, next) => {
       `UPDATE VIOLATION_REPORTS SET status='dispatched', dispatched_at=NOW() WHERE report_id=?`,
       [reportId]
     );
+    await notificationService.send(null, reportId, 'dispatched');
     return res.json({ success: true, message: 'Report dispatched.', data: { report_id: reportId } });
   } catch (err) { return next(err); }
 };
@@ -207,6 +315,13 @@ const resolve = async (req, res, next) => {
   const reportId = parseInt(req.params.reportId, 10);
   const { resolution_outcome, ticket_reference } = req.body;
   if (!resolution_outcome) return fail(res, 400, 'resolution_outcome is required.');
+  // UC-08 Step 3 (paper p.87): a ticketed outcome requires a ticket reference.
+  // Note: total_violations is NOT incremented here — this system counts at
+  // submission (reportController), so resolving must not double-count.
+  if (['Ticket Issued', 'Vehicle Clamped'].includes(resolution_outcome)
+      && (!ticket_reference || !String(ticket_reference).trim())) {
+    return fail(res, 422, 'Ticket reference is required.');
+  }
 
   try {
     const [[report]] = await pool.execute('SELECT status FROM VIOLATION_REPORTS WHERE report_id = ?', [reportId]);
@@ -218,6 +333,7 @@ const resolve = async (req, res, next) => {
       `UPDATE VIOLATION_REPORTS SET status='resolved', resolution_outcome=?, ticket_reference=?, resolved_at=NOW(), is_escalated=FALSE WHERE report_id=?`,
       [resolution_outcome, ticket_reference ?? null, reportId]
     );
+    await notificationService.send(null, reportId, 'resolved', { resolution_outcome });
     return res.json({ success: true, message: 'Report resolved.', data: { report_id: reportId } });
   } catch (err) { return next(err); }
 };
@@ -258,11 +374,15 @@ const analyticsSummary = async (req, res, next) => {
       `SELECT
          COUNT(*) AS reports_submitted,
          SUM(CASE WHEN r.status = 'resolved' THEN 1 ELSE 0 END) AS reports_resolved,
+         SUM(CASE WHEN r.status IN ('verified','acknowledged','dispatched','resolved') THEN 1 ELSE 0 END) AS total_verified,
+         SUM(CASE WHEN r.status IN ('acknowledged','dispatched','resolved') THEN 1 ELSE 0 END) AS total_acknowledged,
+         SUM(CASE WHEN r.status = 'rejected' THEN 1 ELSE 0 END) AS total_rejected,
          SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) AS pending_now,
          SUM(CASE WHEN r.is_escalated = 1 OR r.status = 'escalated' THEN 1 ELSE 0 END) AS escalated_now,
          SUM(CASE WHEN r.status = 'resolved' AND DATE(r.resolved_at) = '${today}' THEN 1 ELSE 0 END) AS resolved_today,
          COALESCE(AVG(CASE WHEN r.verified_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.verified_at) END), 0) AS avg_verify_min,
          COALESCE(AVG(CASE WHEN r.acknowledged_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.verified_at, r.acknowledged_at) END), 0) AS avg_mtpb_response_min,
+         COALESCE(AVG(CASE WHEN r.resolved_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.resolved_at) END), 0) AS avg_resolution_min,
          COALESCE(AVG(CASE WHEN r.escalated_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.verified_at, r.escalated_at) END), 0) AS avg_escalation_min
        FROM VIOLATION_REPORTS r
        WHERE 1=1 ${dateFilter}`,
@@ -282,6 +402,7 @@ const analyticsSummary = async (req, res, next) => {
     );
 
     return res.json({ success: true, message: 'Success', data: {
+      // Existing field names (kept for the supervisor portal / CSV).
       reports_submitted: total,
       reports_resolved: resolved,
       pending_now: Number(s.pending_now ?? 0),
@@ -293,6 +414,17 @@ const analyticsSummary = async (req, res, next) => {
       avg_escalation_min: Math.round(Number(s.avg_escalation_min ?? 0)),
       total_repeat_offenders: Number(roStats.total_repeat_offenders ?? 0),
       total_fines_issued: Number(fineStats.total_fines ?? 0),
+      // FIX 7 — paper/audit field names (additive).
+      total_submitted: total,
+      total_verified: Number(s.total_verified ?? 0),
+      total_acknowledged: Number(s.total_acknowledged ?? 0),
+      total_escalated: Number(s.escalated_now ?? 0),
+      total_resolved: resolved,
+      total_rejected: Number(s.total_rejected ?? 0),
+      pending: Number(s.pending_now ?? 0),
+      avg_verify_time_minutes: Math.round(Number(s.avg_verify_min ?? 0)),
+      avg_acknowledgment_time_minutes: Math.round(Number(s.avg_mtpb_response_min ?? 0)),
+      avg_resolution_time_minutes: Math.round(Number(s.avg_resolution_min ?? 0)),
     }});
   } catch (err) { return next(err); }
 };
@@ -302,16 +434,41 @@ const analyticsSummary = async (req, res, next) => {
 // ---------------------------------------------------------------------------
 const repeatOffenders = async (req, res, next) => {
   try {
+    // FIX 8 (FR-19) — include the location/status of each vehicle's most recent
+    // violation. last_violation_date is kept for the existing CSV export.
     const [rows] = await pool.execute(
-      `SELECT v.plate_number, v.total_violations, MAX(r.submitted_at) AS last_violation_date
+      `SELECT
+         v.plate_number,
+         v.total_violations,
+         v.is_repeat_offender,
+         v.first_recorded_at,
+         MAX(vr.submitted_at) AS last_seen,
+         MAX(vr.submitted_at) AS last_violation_date,
+         latest.street_name   AS last_seen_street,
+         latest.barangay_name AS last_seen_barangay,
+         latest.status        AS last_violation_status
        FROM VEHICLES v
-       JOIN VIOLATION_REPORTS r ON r.vehicle_id = v.vehicle_id
-       WHERE v.is_repeat_offender = TRUE
-       GROUP BY v.vehicle_id, v.plate_number, v.total_violations
-       ORDER BY v.total_violations DESC, last_violation_date DESC
+       JOIN VIOLATION_REPORTS vr ON vr.vehicle_id = v.vehicle_id
+       JOIN (
+         SELECT vr2.vehicle_id, vr2.status, s.street_name, b.barangay_name
+         FROM VIOLATION_REPORTS vr2
+         LEFT JOIN STREETS s   ON vr2.street_id = s.street_id
+         LEFT JOIN BARANGAYS b ON s.barangay_id = b.barangay_id
+         WHERE vr2.submitted_at = (
+           SELECT MAX(vr3.submitted_at) FROM VIOLATION_REPORTS vr3 WHERE vr3.vehicle_id = vr2.vehicle_id
+         )
+       ) latest ON latest.vehicle_id = v.vehicle_id
+       WHERE v.total_violations >= 2
+       GROUP BY v.vehicle_id, v.plate_number, v.total_violations, v.is_repeat_offender,
+                v.first_recorded_at, latest.street_name, latest.barangay_name, latest.status
+       ORDER BY v.total_violations DESC, last_seen DESC
        LIMIT 100`
     );
-    return res.json({ success: true, message: 'Success', data: rows });
+    return res.json({
+      success: true,
+      message: 'Success',
+      data: rows.map((r) => ({ ...r, is_repeat_offender: !!r.is_repeat_offender })),
+    });
   } catch (err) { return next(err); }
 };
 
@@ -354,8 +511,128 @@ const violationMap = async (req, res, next) => {
   } catch (err) { return next(err); }
 };
 
+// ---------------------------------------------------------------------------
+// GET /api/reports/queue/supervisor
+// Escalated reports awaiting supervisor action (UC-10), oldest escalation first.
+// ---------------------------------------------------------------------------
+const supervisorQueue = async (req, res, next) => {
+  try {
+    const [rows] = await pool.execute(
+      `${REPORT_SELECT.replace(
+        'v.plate_number, v.total_violations, v.is_repeat_offender,',
+        `v.plate_number, v.total_violations, v.is_repeat_offender,
+         r.escalation_reason,
+         TIMESTAMPDIFF(SECOND, r.escalated_at, NOW()) AS seconds_since_escalation,`,
+      )}
+       WHERE r.is_escalated = TRUE
+       ORDER BY r.escalated_at ASC`
+    );
+
+    const today = new Date().toISOString().slice(0, 10);
+    const [[s]] = await pool.execute(
+      `SELECT
+         SUM(CASE WHEN status = 'escalated' THEN 1 ELSE 0 END) AS escalated_now,
+         COALESCE(AVG(CASE WHEN escalated_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, verified_at, escalated_at) END), 0) AS avg_escalation_time_minutes,
+         SUM(CASE WHEN status = 'resolved' AND DATE(resolved_at) = ? THEN 1 ELSE 0 END) AS resolved_today,
+         COUNT(*) AS total_submitted,
+         SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) AS total_resolved
+       FROM VIOLATION_REPORTS`,
+      [today]
+    );
+    const total = Number(s.total_submitted ?? 0);
+    const resolved = Number(s.total_resolved ?? 0);
+
+    const reports = rows.map((r) => ({
+      ...mapRow(r),
+      escalation_reason: r.escalation_reason,
+      seconds_since_escalation: r.seconds_since_escalation === null ? null : Number(r.seconds_since_escalation),
+    }));
+
+    return res.json({ success: true, message: 'Success', data: {
+      reports,
+      stats: {
+        escalated_now: Number(s.escalated_now ?? 0),
+        avg_escalation_time_minutes: Math.round(Number(s.avg_escalation_time_minutes ?? 0)),
+        resolved_today: Number(s.resolved_today ?? 0),
+        resolution_rate: total > 0 ? Math.round((resolved / total) * 100) : 0,
+      },
+    }});
+  } catch (err) { return next(err); }
+};
+
+// ---------------------------------------------------------------------------
+// PATCH /api/reports/:reportId/supervisor-resolve  { resolution_outcome, ticket_reference? }
+// UC-10 AF-1 — a supervisor resolves directly. Source status (escalated/
+// dispatched) is enforced by requireStatus('supervisor_resolve'); no
+// assigned-officer check. total_violations is NOT touched (counted at submission).
+// ---------------------------------------------------------------------------
+const supervisorResolve = async (req, res, next) => {
+  const reportId = parseInt(req.params.reportId, 10);
+  const { resolution_outcome, ticket_reference } = req.body;
+  if (!resolution_outcome) return fail(res, 400, 'resolution_outcome is required.');
+  if (['Ticket Issued', 'Vehicle Clamped'].includes(resolution_outcome)
+      && (!ticket_reference || !String(ticket_reference).trim())) {
+    return fail(res, 422, 'Ticket reference is required.');
+  }
+
+  try {
+    await pool.execute(
+      `UPDATE VIOLATION_REPORTS SET status='resolved', resolution_outcome=?, ticket_reference=?, resolved_at=NOW(), is_escalated=FALSE WHERE report_id=?`,
+      [resolution_outcome, ticket_reference ?? null, reportId]
+    );
+    await notificationService.send(null, reportId, 'resolved', { resolution_outcome });
+    return res.json({ success: true, message: 'Report resolved.', data: { report_id: reportId, status: 'resolved', resolution_outcome } });
+  } catch (err) { return next(err); }
+};
+
+// ---------------------------------------------------------------------------
+// GET /api/reports  — paginated all-reports list (supervisor / admin).
+// Filters: start_date, end_date, barangay_id, status, page, limit.
+// ---------------------------------------------------------------------------
+const allReports = async (req, res, next) => {
+  try {
+    const page = Math.max(1, parseInt(req.query.page, 10) || 1);
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 50));
+    const offset = (page - 1) * limit;
+
+    const where = ['1=1'];
+    const params = [];
+    if (req.query.start_date && req.query.end_date) {
+      where.push('DATE(r.submitted_at) BETWEEN ? AND ?');
+      params.push(req.query.start_date, req.query.end_date);
+    }
+    if (req.query.status) { where.push('r.status = ?'); params.push(req.query.status); }
+    if (req.query.barangay_id) {
+      where.push('COALESCE(r.barangay_id, s.barangay_id) = ?');
+      params.push(parseInt(req.query.barangay_id, 10));
+    }
+    const whereSql = where.join(' AND ');
+
+    const [[{ total }]] = await pool.execute(
+      `SELECT COUNT(*) AS total
+         FROM VIOLATION_REPORTS r
+         LEFT JOIN STREETS s ON s.street_id = r.street_id
+        WHERE ${whereSql}`,
+      params
+    );
+
+    // limit/offset are validated integers — inlined to avoid mysql2 placeholder
+    // quirks with LIMIT/OFFSET bound params.
+    const [rows] = await pool.execute(
+      `${REPORT_SELECT}
+        WHERE ${whereSql}
+        ORDER BY r.submitted_at DESC
+        LIMIT ${limit} OFFSET ${offset}`,
+      params
+    );
+
+    return sendPaginated(res, rows.map(mapRow), Number(total), page, limit);
+  } catch (err) { return next(err); }
+};
+
 module.exports = {
   barangayQueue, barangayStats, verify,
   mtpbQueue, acknowledge, dispatch, resolve, assign,
+  supervisorQueue, supervisorResolve, allReports,
   analyticsSummary, repeatOffenders, violationMap,
 };

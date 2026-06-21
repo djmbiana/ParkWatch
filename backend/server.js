@@ -4,6 +4,7 @@ const app    = require('./src/app');
 const logger = require('./src/config/logger');
 const { testConnection } = require('./src/config/db');
 const { initFirebase }   = require('./src/config/firebase');
+const escalationJob      = require('./src/jobs/escalationJob');
 
 // Cloud Run injects PORT (defaults to 8080); fall back to 3000 for local dev.
 const PORT = process.env.PORT || 3000;
@@ -25,6 +26,7 @@ const start = async () => {
   validateEnv();
   await testConnection();
   initFirebase();
+  escalationJob.start();
 
   app.listen(PORT, () => {
     logger.info(`ParkWatch API running on port ${PORT} [${process.env.NODE_ENV || 'development'}]`);

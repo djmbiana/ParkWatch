@@ -57,6 +57,8 @@ const limiter = rateLimit({
 app.use('/api', limiter);
 
 // ── Routes ───────────────────────────────────────────────
+// Unversioned health alias (keeps /api/v1/health working too).
+app.get('/api/health', require('./controllers/healthController').health);
 app.use('/api/v1', routes);
 // Unversioned aliases so the documented /api/* paths work alongside /api/v1/*.
 app.use('/api/upload', require('./routes/uploadRoutes'));

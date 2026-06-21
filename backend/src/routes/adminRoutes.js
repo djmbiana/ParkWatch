@@ -22,6 +22,8 @@ router.patch('/barangays/:barangayId/toggle', ...admin, adminController.toggleBa
 // Streets & Rules
 router.get  ('/streets',                  ...admin, adminController.listStreets);
 router.post ('/streets',                  ...admin, adminController.createStreet);
+router.patch('/streets/:streetId/deactivate', ...admin, adminController.deactivateStreet);
+router.get  ('/parking-rules',            ...admin, adminController.listRules);
 router.patch('/parking-rules/:ruleId/toggle', ...admin, adminController.toggleRule);
 router.post ('/parking-rules',            ...admin, adminController.createRule);
 

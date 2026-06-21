@@ -21,6 +21,11 @@ const storageService = require('../src/services/storageService');
 const CITIZEN_ID = 7;
 const FAKE_URL = `https://storage.googleapis.com/test-bucket/photos/${CITIZEN_ID}/123_plate.jpg`;
 
+// Minimal valid magic-byte headers (the upload controller validates real
+// content, not just the declared MIME type).
+const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0x00, 0x01]);
+const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d]);
+
 /** Signs a JWT with the test secret. */
 function sign(payload) {
   return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1h' });
@@ -37,7 +42,7 @@ describe('POST /api/upload/photo', () => {
   it('uploads anonymously (no token) — citizens submit without an account', async () => {
     const res = await request(app)
       .post('/api/upload/photo')
-      .attach('photo', Buffer.from('fake-image-bytes'), { filename: 'plate.jpg', contentType: 'image/jpeg' });
+      .attach('photo', JPEG_BYTES, { filename: 'plate.jpg', contentType: 'image/jpeg' });
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ success: true, data: { photo_url: FAKE_URL } });
@@ -80,7 +85,7 @@ describe('POST /api/upload/photo', () => {
     const res = await request(app)
       .post('/api/upload/photo')
       .set('Authorization', `Bearer ${citizenToken()}`)
-      .attach('photo', Buffer.from('fake-image-bytes'), { filename: 'plate photo.jpg', contentType: 'image/jpeg' });
+      .attach('photo', JPEG_BYTES, { filename: 'plate photo.jpg', contentType: 'image/jpeg' });
 
     expect(res.status).toBe(200);
     expect(res.body).toMatchObject({ success: true, data: { photo_url: FAKE_URL } });
@@ -97,7 +102,7 @@ describe('POST /api/upload/photo', () => {
     const res = await request(app)
       .post('/api/v1/upload/photo')
       .set('Authorization', `Bearer ${citizenToken()}`)
-      .attach('photo', Buffer.from('fake-image-bytes'), { filename: 'plate.png', contentType: 'image/png' });
+      .attach('photo', PNG_BYTES, { filename: 'plate.png', contentType: 'image/png' });
 
     expect(res.status).toBe(200);
     expect(res.body.data.photo_url).toBe(FAKE_URL);

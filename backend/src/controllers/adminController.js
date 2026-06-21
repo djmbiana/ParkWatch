@@ -32,7 +32,13 @@ const listUsers = async (req, res, next) => {
 const createUser = async (req, res, next) => {
   const { first_name, last_name, email, role, barangay_id } = req.body;
   if (!first_name || !last_name || !email || !role) return fail(res, 400, 'first_name, last_name, email, role are required.');
-  if (role === 'citizen') return fail(res, 400, 'Cannot provision citizen accounts via admin.');
+  // UC-13 Special Requirements (paper p.104): admin cannot assign the citizen role.
+  if (!['brgy_official', 'mtpb_officer', 'mtpb_supervisor'].includes(role)) {
+    return fail(res, 422, 'Admin can only provision brgy_official, mtpb_officer, or mtpb_supervisor accounts.');
+  }
+  if (role === 'brgy_official' && !barangay_id) {
+    return fail(res, 422, 'barangay_id is required for a barangay official.');
+  }
 
   try {
     const [[exists]] = await pool.execute('SELECT user_id FROM USERS WHERE email = ? LIMIT 1', [email]);
@@ -51,7 +57,9 @@ const createUser = async (req, res, next) => {
     return res.status(201).json({
       success: true,
       message: 'Account provisioned.',
-      data: { user_id: result.insertId, temporary_password: tempPw },
+      // temporary_password is what the admin portal reads; temp_password is the
+      // spec's name — both returned so the secret is shown exactly once.
+      data: { user_id: result.insertId, email, role, temporary_password: tempPw, temp_password: tempPw },
     });
   } catch (err) { return next(err); }
 };
@@ -174,6 +182,33 @@ const createStreet = async (req, res, next) => {
   }
 };
 
+// PATCH /api/admin/streets/:streetId/deactivate — soft-delete (UC-15).
+const deactivateStreet = async (req, res, next) => {
+  const { streetId } = req.params;
+  try {
+    await pool.execute('UPDATE STREETS SET is_active = FALSE WHERE street_id = ?', [streetId]);
+    return res.json({ success: true, message: 'Street deactivated.' });
+  } catch (err) { return next(err); }
+};
+
+// GET /api/admin/parking-rules?street_id= — rules with their street name (UC-17).
+const listRules = async (req, res, next) => {
+  try {
+    const { street_id } = req.query;
+    const where = street_id ? 'WHERE pr.street_id = ?' : '';
+    const params = street_id ? [parseInt(street_id, 10)] : [];
+    const [rows] = await pool.execute(
+      `SELECT pr.rule_id, pr.street_id, pr.violation_type, pr.is_active, s.street_name
+         FROM PARKING_RULES pr
+         LEFT JOIN STREETS s ON s.street_id = pr.street_id
+         ${where}
+         ORDER BY s.street_name, pr.violation_type`,
+      params
+    );
+    return res.json({ success: true, message: 'Success', data: rows });
+  } catch (err) { return next(err); }
+};
+
 const toggleRule = async (req, res, next) => {
   const { ruleId } = req.params;
   try {
@@ -205,10 +240,38 @@ const listTiers = async (req, res, next) => {
   } catch (err) { return next(err); }
 };
 
+// Two violation-count ranges overlap if each starts at or before the other ends.
+// A null max_violations means the tier is open-ended (… and up).
+const rangesOverlap = (aMin, aMax, bMin, bMax) => {
+  const aHi = aMax == null ? Infinity : Number(aMax);
+  const bHi = bMax == null ? Infinity : Number(bMax);
+  return Number(aMin) <= bHi && Number(bMin) <= aHi;
+};
+
+// Returns an existing tier whose range overlaps [minV, maxV], or null.
+// excludeTierId skips the row being updated.
+const findOverlappingTier = async (minV, maxV, excludeTierId = null) => {
+  const [tiers] = await pool.execute(
+    'SELECT tier_id, tier_name, min_violations, max_violations FROM PENALTY_TIERS'
+  );
+  return tiers.find((t) =>
+    t.tier_id !== excludeTierId && rangesOverlap(minV, maxV, t.min_violations, t.max_violations)
+  ) || null;
+};
+
+const overlapMessage = (t) =>
+  `Violation range overlaps existing tier "${t.tier_name}" (${t.min_violations}–${t.max_violations ?? '∞'}).`;
+
 const updateTier = async (req, res, next) => {
   const { tierId } = req.params;
   const { tier_name, min_violations, max_violations, fine_amount, requires_clamping } = req.body;
+  if (!tier_name || min_violations == null || fine_amount == null) {
+    return fail(res, 400, 'tier_name, min_violations, fine_amount required.');
+  }
   try {
+    const clash = await findOverlappingTier(min_violations, max_violations ?? null, Number(tierId));
+    if (clash) return fail(res, 422, overlapMessage(clash));
+
     await pool.execute(
       `UPDATE PENALTY_TIERS SET tier_name=?, min_violations=?, max_violations=?, fine_amount=?, requires_clamping=? WHERE tier_id=?`,
       [tier_name, min_violations, max_violations ?? null, fine_amount, requires_clamping ? 1 : 0, tierId]
@@ -221,6 +284,9 @@ const createTier = async (req, res, next) => {
   const { tier_name, min_violations, max_violations, fine_amount, requires_clamping } = req.body;
   if (!tier_name || min_violations == null || fine_amount == null) return fail(res, 400, 'tier_name, min_violations, fine_amount required.');
   try {
+    const clash = await findOverlappingTier(min_violations, max_violations ?? null);
+    if (clash) return fail(res, 422, overlapMessage(clash));
+
     const [result] = await pool.execute(
       `INSERT INTO PENALTY_TIERS (tier_name, min_violations, max_violations, fine_amount, requires_clamping) VALUES (?,?,?,?,?)`,
       [tier_name, min_violations, max_violations ?? null, fine_amount, requires_clamping ? 1 : 0]
@@ -232,6 +298,6 @@ const createTier = async (req, res, next) => {
 module.exports = {
   listUsers, createUser, updateUser, deactivateUser, reactivateUser, listOfficers,
   listBarangays, toggleBarangay,
-  listStreets, createStreet, toggleRule, createRule,
+  listStreets, createStreet, deactivateStreet, listRules, toggleRule, createRule,
   listTiers, updateTier, createTier,
 };

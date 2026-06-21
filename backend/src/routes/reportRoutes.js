@@ -5,6 +5,7 @@ const reportController = require('../controllers/reportController');
 const queueController  = require('../controllers/queueController');
 const { authenticate, optionalAuthenticate } = require('../middleware/auth');
 const { authorize, ROLES } = require('../middleware/roleMiddleware');
+const { requireStatus } = require('../middleware/statusGuard');
 
 const router = express.Router();
 
@@ -47,19 +48,26 @@ router.get ('/mine',    authenticate, authorize(ROLES.CITIZEN), reportController
 // --- Barangay queue -------------------------------------------------------
 router.get('/queue/barangay',  authenticate, authorize(ROLES.BRGY_OFFICIAL),                                   queueController.barangayQueue);
 router.get('/stats/barangay',  authenticate, authorize(ROLES.BRGY_OFFICIAL),                                   queueController.barangayStats);
-router.patch('/:reportId/verify', authenticate, authorize(ROLES.BRGY_OFFICIAL),                               queueController.verify);
+router.patch('/:reportId/verify', authenticate, authorize(ROLES.BRGY_OFFICIAL),        requireStatus('verify_approve'), queueController.verify);
 
 // --- MTPB queue & actions -------------------------------------------------
 router.get ('/queue/mtpb',        authenticate, authorize(ROLES.MTPB_OFFICER, ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), queueController.mtpbQueue);
-router.patch('/:reportId/acknowledge', authenticate, authorize(ROLES.MTPB_OFFICER, ROLES.MTPB_SUPERVISOR),        queueController.acknowledge);
-router.patch('/:reportId/dispatch',    authenticate, authorize(ROLES.MTPB_OFFICER, ROLES.MTPB_SUPERVISOR),        queueController.dispatch);
-router.patch('/:reportId/resolve',     authenticate, authorize(ROLES.MTPB_OFFICER, ROLES.MTPB_SUPERVISOR),        queueController.resolve);
-router.patch('/:reportId/assign',      authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN),               queueController.assign);
+router.patch('/:reportId/acknowledge', authenticate, authorize(ROLES.MTPB_OFFICER, ROLES.MTPB_SUPERVISOR), requireStatus('acknowledge'), queueController.acknowledge);
+router.patch('/:reportId/dispatch',    authenticate, authorize(ROLES.MTPB_OFFICER, ROLES.MTPB_SUPERVISOR), requireStatus('dispatch'),    queueController.dispatch);
+router.patch('/:reportId/resolve',     authenticate, authorize(ROLES.MTPB_OFFICER, ROLES.MTPB_SUPERVISOR), requireStatus('resolve'),     queueController.resolve);
+router.patch('/:reportId/assign',      authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN),        requireStatus('assign'),      queueController.assign);
+
+// --- Supervisor (UC-10) ---------------------------------------------------
+router.get  ('/queue/supervisor',           authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN),                          queueController.supervisorQueue);
+router.patch('/:reportId/supervisor-resolve', authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), requireStatus('supervisor_resolve'), queueController.supervisorResolve);
 
 // --- Analytics (supervisor / admin) --------------------------------------
 router.get('/analytics/summary',          authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), queueController.analyticsSummary);
 router.get('/analytics/repeat-offenders', authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), queueController.repeatOffenders);
 router.get('/analytics/violation-map',    authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), queueController.violationMap);
+
+// --- All reports (supervisor / admin) — paginated list -------------------
+router.get('/', authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), queueController.allReports);
 
 // --- Report detail (role-scoped) — must be last to avoid matching above ----
 // optionalAuthenticate: anonymous citizens track their own report by its id

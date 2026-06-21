@@ -7,7 +7,22 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:report": "playwright show-report",
+    "test:e2e:mobile": "playwright test --project=\"Mobile Chrome\"",
+    "test:e2e:desktop": "playwright test --project=\"Desktop Chrome\"",
+    "test:e2e:so1": "playwright test SO1",
+    "test:e2e:so2": "playwright test SO2",
+    "test:e2e:so3": "playwright test SO3",
+    "test:e2e:so4": "playwright test SO4",
+    "test:e2e:so5": "playwright test SO5",
+    "test:e2e:so6": "playwright test SO6",
+    "test:e2e:auth": "playwright test auth",
+    "test:e2e:portals": "playwright test portals",
+    "test:e2e:security": "playwright test security",
+    "test:e2e:ci": "CI=1 playwright test"
   },
   "dependencies": {
     "firebase": "^12.14.0",
@@ -21,6 +36,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.61.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",

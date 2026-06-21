@@ -29,6 +29,11 @@ services:
     volumes:
       - ./backend:/app
       # Preserve the image's node_modules; don't overwrite with host folder.
+      # NOTE: this anonymous volume is populated from the image only when first
+      # created, so it shadows dependency changes. After editing package.json,
+      # rebuild AND renew the volume or the new deps won't appear at runtime:
+      #   docker compose up -d --build --renew-anon-volumes backend
+      # (a plain `down && up` keeps the stale volume — e.g. a missing node-cron).
       - /app/node_modules
     restart: unless-stopped
     networks:
@@ -40,9 +45,10 @@ services:
     environment:
       MYSQL_DATABASE: ${DB_NAME:-parkwatch}
       MYSQL_USER: ${DB_USER:-parkwatch_user}
-      MYSQL_PASSWORD: ${DB_PASSWORD:-change_me_in_dev}
+      # Fail fast if these aren't set — no weak fallback passwords (I.2).
+      MYSQL_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in .env}
       # Root password is kept separate from the app-user password.
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-change_me_root}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set in .env}
     ports:
       - "3306:3306"
     volumes:
