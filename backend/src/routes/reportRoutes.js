@@ -1,5 +1,6 @@
 const express = require('express');
 const { body } = require('express-validator');
+const rateLimit = require('express-rate-limit');
 
 const reportController = require('../controllers/reportController');
 const queueController  = require('../controllers/queueController');
@@ -8,6 +9,23 @@ const { authorize, ROLES } = require('../middleware/roleMiddleware');
 const { requireStatus } = require('../middleware/statusGuard');
 
 const router = express.Router();
+
+// Dedicated submission limiter (Check 4.8). Unlike the global /api limiter in
+// app.js — which only runs in production — this caps anonymous report creation
+// in ALL environments, since it's the one unauthenticated write path. Skipped
+// only under NODE_ENV=test so the jest/supertest suites aren't throttled.
+// Backed by the in-memory store, so the count resets on each process restart.
+const reportSubmissionLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: parseInt(process.env.REPORT_RATE_LIMIT_MAX, 10) || 10, // per IP per hour
+  message: {
+    success: false,
+    error: 'Too many reports submitted from this IP. Please wait before submitting again.',
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: () => process.env.NODE_ENV === 'test',
+});
 
 // --- Validators ----------------------------------------------------------
 const submissionValidators = [
@@ -38,8 +56,8 @@ const confirmValidators = [
 // Submission is public; a logged-in citizen may still submit, in which case the
 // report is linked to their account. The optional token is read so the report
 // can be associated when present.
-router.post('/',        optionalAuthenticate, submissionValidators, reportController.create);
-router.post('/confirm', optionalAuthenticate, confirmValidators,    reportController.confirm);
+router.post('/',        reportSubmissionLimiter, optionalAuthenticate, submissionValidators, reportController.create);
+router.post('/confirm', reportSubmissionLimiter, optionalAuthenticate, confirmValidators,    reportController.confirm);
 // Preview steps (no DB write) that power the Step-2 plate card + Step-3 penalty.
 router.post('/ocr',             optionalAuthenticate, body('photo_url').isString().trim().notEmpty(), reportController.ocrPreview);
 router.post('/penalty-preview', optionalAuthenticate, body('plate').isString().trim().notEmpty(),     reportController.penaltyPreview);
@@ -70,9 +88,12 @@ router.get('/analytics/violation-map',    authenticate, authorize(ROLES.MTPB_SUP
 router.get('/', authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), queueController.allReports);
 
 // --- Report detail (role-scoped) — must be last to avoid matching above ----
-// optionalAuthenticate: anonymous citizens track their own report by its id
-// (the id is the bearer of access, per the paper's anonymous design); staff
-// send a token and get the existing role-scoped view.
+// FR-16: Anonymous citizens access their own reports via the access_token
+// returned at submission and stored in localStorage['parkwatch_reports'] —
+// GET /api/reports/:id?token={access_token}. Without a valid token the handler
+// returns 401, which prevents report_id enumeration. Staff (JWT present) bypass
+// the token check per their role scoping. This design exceeds the paper spec by
+// preventing enumeration while still requiring no citizen account.
 router.get('/:reportId', optionalAuthenticate, reportController.getById);
 
 module.exports = router;

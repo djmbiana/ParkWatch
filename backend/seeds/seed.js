@@ -6,9 +6,10 @@
  * Inserts:
  *   - Barangays 701–720 (all is_participating = TRUE)
  *   - 20 real Malate streets, assigned evenly across Barangays 701–710
- *   - 7 active parking rules per street
- *   - The 3 penalty tiers (₱900 / ₱1,800 / ₱3,600)
- *   - 5 test users, one per role — DEVELOPMENT ONLY, remove before production
+ *   - The canonical 10 active parking rules per street (RA 4136 + MMDA 2023)
+ *   - The 3 penalty tiers (₱1,000 / ₱2,000 / ₱3,000, MMDA MMTC 2023)
+ *   - 5 test users, one per role + 1 deactivated account
+ *     — DEVELOPMENT ONLY, remove before production
  *
  * Run (from the backend/ directory):
  *   npm run seed                              ← locally with ./backend/.env loaded
@@ -60,22 +61,30 @@ const STREET_NAMES = [
 ];
 const STREETS_PER_BARANGAY = STREET_NAMES.length / 10; // 2 per barangay, 701–710
 
-// Active rules added for every street.
+// Active rules added for every street — the canonical 10 violation types
+// (RA 4136 + MMDA MMTC 2023). Kept in sync with migration 019; the exact
+// strings must match so re-running the seed never reintroduces old/duplicate
+// names (e.g. "Blocking Driveway" vs "Blocking Driveway or Entrance").
 const VIOLATION_TYPES = [
-  'Wrong Side Parking',
   'Parked on Sidewalk',
   'Parked on Pedestrian Lane',
   'Parked on Yellow Line',
-  'Double Parking',
   'Parked in No Parking Zone',
-  'Blocking Driveway',
+  'Double Parking',
+  'Blocking Driveway or Entrance',
+  'Wrong Side Parking',
+  'Parked at Intersection or Corner',
+  'Parked in Front of Fire Hydrant',
+  'Parked in Bus or Jeepney Stop Zone',
 ];
 
 // Matched against VEHICLES.total_violations when a report is verified.
+// Fines align with MMDA MMTC 2023 (₱1000/₱2000/₱3000) per migration 020 —
+// keep these in sync so the seed never regresses the corrected amounts.
 const PENALTY_TIERS = [
-  { tier_name: '1st Offense',  min_violations: 0, max_violations: 1,    fine_amount: 900.0,  requires_clamping: false },
-  { tier_name: '2nd Offense',  min_violations: 2, max_violations: 2,    fine_amount: 1800.0, requires_clamping: false },
-  { tier_name: '3rd Offense+', min_violations: 3, max_violations: null, fine_amount: 3600.0, requires_clamping: true  },
+  { tier_name: '1st Offense',  min_violations: 0, max_violations: 1,    fine_amount: 1000.0, requires_clamping: false },
+  { tier_name: '2nd Offense',  min_violations: 2, max_violations: 2,    fine_amount: 2000.0, requires_clamping: false },
+  { tier_name: '3rd Offense+', min_violations: 3, max_violations: null, fine_amount: 3000.0, requires_clamping: true  },
 ];
 
 // ⚠ DEVELOPMENT ONLY — remove these accounts before any production deploy.
@@ -181,21 +190,43 @@ async function seedTestUsers(connection, barangayIds) {
     const barangayId = user.barangay ? barangayIds.get(user.barangay) ?? null : null;
     // Upsert by uq_users_email so re-runs reset the password/role to the
     // documented test credentials even if the row was changed manually.
+    // is_verified = FALSE: login does not gate on it (only is_active), and the
+    // audit (Check 1.6) expects unverified test accounts.
     await connection.execute(
       `INSERT INTO USERS
          (first_name, last_name, email, password_hash, role, anonymous_alias,
           barangay_id, is_verified, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, TRUE)
+       VALUES (?, ?, ?, ?, ?, ?, ?, FALSE, TRUE)
        ON DUPLICATE KEY UPDATE
          password_hash = VALUES(password_hash),
          role          = VALUES(role),
          barangay_id   = VALUES(barangay_id),
-         is_verified   = TRUE,
+         is_verified   = FALSE,
          is_active     = TRUE`,
       [user.first_name, user.last_name, user.email, hash, user.role, user.alias, barangayId]
     );
   }
   logger.info(`Test users seeded (${TEST_USERS.length} rows, password: ${TEST_PASSWORD})`);
+}
+
+// Deactivated test account — drives TC-AUTH-03 (login must return 403 for a
+// deactivated user). Separate from the active TEST_USERS because the ON
+// DUPLICATE branch must force is_active = FALSE on every re-run.
+async function seedDeactivatedUser(connection) {
+  const hash = await bcrypt.hash(TEST_PASSWORD, SALT_ROUNDS);
+  await connection.execute(
+    `INSERT INTO USERS
+       (first_name, last_name, email, password_hash, role, anonymous_alias,
+        barangay_id, is_verified, is_active)
+     VALUES (?, ?, ?, ?, ?, ?, NULL, FALSE, FALSE)
+     ON DUPLICATE KEY UPDATE
+       password_hash = VALUES(password_hash),
+       role          = VALUES(role),
+       is_verified   = FALSE,
+       is_active     = FALSE`,
+    ['Deactivated', 'TestUser', 'deactivated@test.com', hash, 'citizen', 'Reporter #0000']
+  );
+  logger.info('Deactivated test account seeded (deactivated@test.com, is_active = FALSE)');
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +244,7 @@ async function seed() {
     await seedParkingRules(connection);
     await seedPenaltyTiers(connection);
     await seedTestUsers(connection, barangayIds);
+    await seedDeactivatedUser(connection);
 
     logger.info('─────────────────────────────────────────');
     logger.info(`Seed complete. Test accounts use password: ${TEST_PASSWORD}`);

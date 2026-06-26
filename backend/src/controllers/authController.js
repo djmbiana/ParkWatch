@@ -9,6 +9,16 @@ const { signToken } = require('../utils/jwt');
 
 const SALT_ROUNDS = 10;
 
+// Explicit column lists instead of SELECT * (Check 4.3): never pull columns we
+// don't need, and never let a future schema column flow through by accident.
+// USER_PUBLIC_COLUMNS is everything toPublicUser / signToken read — no
+// password_hash. USER_AUTH_COLUMNS adds password_hash for login's bcrypt.compare
+// (still stripped from the response by toPublicUser).
+const USER_PUBLIC_COLUMNS =
+  'user_id, first_name, last_name, email, phone_number, role, anonymous_alias, ' +
+  'barangay_id, is_verified, is_active, created_at';
+const USER_AUTH_COLUMNS = `${USER_PUBLIC_COLUMNS}, password_hash`;
+
 /**
  * Build the public-safe user object returned to clients.
  * Never include password_hash. Renames user_id → id to match the JWT payload.
@@ -68,7 +78,7 @@ const register = async (req, res, next) => {
     );
 
     const [[newUser]] = await pool.execute(
-      `SELECT * FROM ${User.TABLE} WHERE ${User.COLUMNS.ID} = ?`,
+      `SELECT ${USER_PUBLIC_COLUMNS} FROM ${User.TABLE} WHERE ${User.COLUMNS.ID} = ?`,
       [result.insertId]
     );
 
@@ -97,7 +107,7 @@ const login = async (req, res, next) => {
 
   try {
     const [[user]] = await pool.execute(
-      `SELECT * FROM ${User.TABLE} WHERE ${User.COLUMNS.EMAIL} = ? LIMIT 1`,
+      `SELECT ${USER_AUTH_COLUMNS} FROM ${User.TABLE} WHERE ${User.COLUMNS.EMAIL} = ? LIMIT 1`,
       [email.toLowerCase()]
     );
 
@@ -141,7 +151,7 @@ const login = async (req, res, next) => {
 const me = async (req, res, next) => {
   try {
     const [[user]] = await pool.execute(
-      `SELECT * FROM ${User.TABLE} WHERE ${User.COLUMNS.ID} = ? LIMIT 1`,
+      `SELECT ${USER_PUBLIC_COLUMNS} FROM ${User.TABLE} WHERE ${User.COLUMNS.ID} = ? LIMIT 1`,
       [req.user.id]
     );
 

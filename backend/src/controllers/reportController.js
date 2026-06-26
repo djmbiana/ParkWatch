@@ -140,8 +140,13 @@ const finishPipeline = async (res, ctx) => {
     }
   }
 
-  // Tier is for the violation being committed = the (prior count + 1)th offense.
-  // total_violations is still the PRIOR count here (incremented below).
+  // Penalty tier assigned at submission reflects CONFIRMED violations only.
+  // total_violations counts resolved (Ticket Issued / Vehicle Clamped) reports
+  // and increments at resolution per FR-13 (paper p.54), NOT at submission — so
+  // it is the prior confirmed count here, and this report is the (count + 1)th
+  // potential offense. Two reports submitted before the first resolves both map
+  // to the same tier, which is correct (the tier reflects violations at the time
+  // of the report).
   const offenseNumber = vehicle.total_violations + 1;
   const [[tier]] = await pool.execute(
     `SELECT tier_id, tier_name, fine_amount, requires_clamping
@@ -153,7 +158,9 @@ const finishPipeline = async (res, ctx) => {
     [offenseNumber, offenseNumber]
   );
 
-  // Step 7 — create the report and bump the vehicle's counters atomically.
+  // Step 7 — create the report. The vehicle's total_violations counter is NOT
+  // touched here: it increments at resolution (FR-13), so an unconfirmed or
+  // later-rejected report never inflates a plate's offense history.
   const connection = await pool.getConnection();
   let reportId;
   try {
@@ -196,16 +203,6 @@ const finishPipeline = async (res, ctx) => {
       ]
     );
     reportId = inserted.insertId;
-
-    await connection.execute(
-      // total_violations is incremented first; the next assignment sees the new
-      // value, so a repeat offender is one with >= 2 total violations.
-      `UPDATE VEHICLES
-          SET total_violations = total_violations + 1,
-              is_repeat_offender = (total_violations >= 2)
-        WHERE vehicle_id = ?`,
-      [vehicle.vehicle_id]
-    );
 
     await connection.commit();
   } catch (err) {

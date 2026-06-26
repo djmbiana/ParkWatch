@@ -50,7 +50,9 @@ services:
       # Root password is kept separate from the app-user password.
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?MYSQL_ROOT_PASSWORD must be set in .env}
     ports:
-      - "3306:3306"
+      # Bind to localhost only — reachable by local DB tools (TablePlus/DBeaver)
+      # but NOT exposed to other machines on the network (Check 4.13).
+      - "127.0.0.1:3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
       # Both files run automatically on first container start (alphabetical order).

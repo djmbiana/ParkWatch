@@ -311,31 +311,69 @@ const dispatch = async (req, res, next) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/reports/:reportId/resolve  { resolution_outcome, ticket_reference? }
 // ---------------------------------------------------------------------------
+// Outcomes that confirm a real violation and therefore count toward the
+// vehicle's offense history (FR-13, paper p.54). "Vehicle No Longer Present"
+// (and any other outcome) does NOT increment the counter.
+const COUNTABLE_OUTCOMES = ['Ticket Issued', 'Vehicle Clamped'];
+
 const resolve = async (req, res, next) => {
   const reportId = parseInt(req.params.reportId, 10);
   const { resolution_outcome, ticket_reference } = req.body;
   if (!resolution_outcome) return fail(res, 400, 'resolution_outcome is required.');
   // UC-08 Step 3 (paper p.87): a ticketed outcome requires a ticket reference.
-  // Note: total_violations is NOT incremented here — this system counts at
-  // submission (reportController), so resolving must not double-count.
-  if (['Ticket Issued', 'Vehicle Clamped'].includes(resolution_outcome)
+  if (COUNTABLE_OUTCOMES.includes(resolution_outcome)
       && (!ticket_reference || !String(ticket_reference).trim())) {
     return fail(res, 422, 'Ticket reference is required.');
   }
 
   try {
-    const [[report]] = await pool.execute('SELECT status FROM VIOLATION_REPORTS WHERE report_id = ?', [reportId]);
+    const [[report]] = await pool.execute(
+      'SELECT status, vehicle_id FROM VIOLATION_REPORTS WHERE report_id = ?',
+      [reportId]
+    );
     if (!report) return fail(res, 404, 'Report not found.');
     if (!['dispatched', 'acknowledged', 'escalated', 'verified'].includes(report.status)) {
       return fail(res, 409, `Cannot resolve a report with status "${report.status}".`);
     }
-    await pool.execute(
-      `UPDATE VIOLATION_REPORTS SET status='resolved', resolution_outcome=?, ticket_reference=?, resolved_at=NOW(), is_escalated=FALSE WHERE report_id=?`,
-      [resolution_outcome, ticket_reference ?? null, reportId]
-    );
+
+    await resolveAndCount(reportId, report.vehicle_id, resolution_outcome, ticket_reference);
     await notificationService.send(null, reportId, 'resolved', { resolution_outcome });
     return res.json({ success: true, message: 'Report resolved.', data: { report_id: reportId } });
   } catch (err) { return next(err); }
+};
+
+// Marks a report resolved and, for a countable outcome (Ticket Issued / Vehicle
+// Clamped), atomically increments the vehicle's total_violations counter and
+// recomputes is_repeat_offender (FR-13). Counting happens HERE, at resolution —
+// never at submission — so unconfirmed or "Vehicle No Longer Present" reports
+// never inflate a plate's offense history.
+const resolveAndCount = async (reportId, vehicleId, outcome, ticketReference) => {
+  const countable = COUNTABLE_OUTCOMES.includes(outcome);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.execute(
+      `UPDATE VIOLATION_REPORTS
+          SET status='resolved', resolution_outcome=?, ticket_reference=?, resolved_at=NOW(), is_escalated=FALSE
+        WHERE report_id=?`,
+      [outcome, ticketReference ?? null, reportId]
+    );
+    if (countable && vehicleId) {
+      await connection.execute(
+        `UPDATE VEHICLES
+            SET is_repeat_offender = ((total_violations + 1) >= 2),
+                total_violations   = total_violations + 1
+          WHERE vehicle_id = ?`,
+        [vehicleId]
+      );
+    }
+    await connection.commit();
+  } catch (err) {
+    await connection.rollback();
+    throw err;
+  } finally {
+    connection.release();
+  }
 };
 
 // ---------------------------------------------------------------------------
@@ -564,22 +602,26 @@ const supervisorQueue = async (req, res, next) => {
 // PATCH /api/reports/:reportId/supervisor-resolve  { resolution_outcome, ticket_reference? }
 // UC-10 AF-1 — a supervisor resolves directly. Source status (escalated/
 // dispatched) is enforced by requireStatus('supervisor_resolve'); no
-// assigned-officer check. total_violations is NOT touched (counted at submission).
+// assigned-officer check. Counter increments at resolution for a countable
+// outcome, identical to the officer resolve path (FR-13).
 // ---------------------------------------------------------------------------
 const supervisorResolve = async (req, res, next) => {
   const reportId = parseInt(req.params.reportId, 10);
   const { resolution_outcome, ticket_reference } = req.body;
   if (!resolution_outcome) return fail(res, 400, 'resolution_outcome is required.');
-  if (['Ticket Issued', 'Vehicle Clamped'].includes(resolution_outcome)
+  if (COUNTABLE_OUTCOMES.includes(resolution_outcome)
       && (!ticket_reference || !String(ticket_reference).trim())) {
     return fail(res, 422, 'Ticket reference is required.');
   }
 
   try {
-    await pool.execute(
-      `UPDATE VIOLATION_REPORTS SET status='resolved', resolution_outcome=?, ticket_reference=?, resolved_at=NOW(), is_escalated=FALSE WHERE report_id=?`,
-      [resolution_outcome, ticket_reference ?? null, reportId]
+    const [[report]] = await pool.execute(
+      'SELECT vehicle_id FROM VIOLATION_REPORTS WHERE report_id = ?',
+      [reportId]
     );
+    if (!report) return fail(res, 404, 'Report not found.');
+
+    await resolveAndCount(reportId, report.vehicle_id, resolution_outcome, ticket_reference);
     await notificationService.send(null, reportId, 'resolved', { resolution_outcome });
     return res.json({ success: true, message: 'Report resolved.', data: { report_id: reportId, status: 'resolved', resolution_outcome } });
   } catch (err) { return next(err); }

@@ -11,6 +11,14 @@ const { pool } = require('../config/db');
 
 const SALT_ROUNDS = 10;
 
+// Explicit column lists instead of SELECT * (Check 4.3). USER_AUTH_COLUMNS
+// includes password_hash only because the initial fetch needs it to verify the
+// current password on a password change; it is never sent in a response.
+const USER_PUBLIC_COLUMNS =
+  'user_id, first_name, last_name, email, phone_number, role, anonymous_alias, ' +
+  'barangay_id, is_verified, is_active, created_at';
+const USER_AUTH_COLUMNS = `${USER_PUBLIC_COLUMNS}, password_hash`;
+
 const toPublicUser = (row) => ({
   id: row.user_id,
   first_name: row.first_name,
@@ -36,7 +44,7 @@ const updateMe = async (req, res, next) => {
 
   try {
     const [[user]] = await pool.execute(
-      'SELECT * FROM USERS WHERE user_id = ? LIMIT 1',
+      `SELECT ${USER_AUTH_COLUMNS} FROM USERS WHERE user_id = ? LIMIT 1`,
       [userId]
     );
     if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
@@ -73,7 +81,7 @@ const updateMe = async (req, res, next) => {
     values.push(userId);
     await pool.execute(`UPDATE USERS SET ${fields.join(', ')} WHERE user_id = ?`, values);
 
-    const [[updated]] = await pool.execute('SELECT * FROM USERS WHERE user_id = ? LIMIT 1', [userId]);
+    const [[updated]] = await pool.execute(`SELECT ${USER_PUBLIC_COLUMNS} FROM USERS WHERE user_id = ? LIMIT 1`, [userId]);
     return res.json({ success: true, message: 'Profile updated.', data: { user: toPublicUser(updated) } });
   } catch (err) {
     return next(err);

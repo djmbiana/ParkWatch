@@ -190,7 +190,10 @@ export const citizen = {
   // Submission pipeline
   createReport:  (body) => jsonPost('/api/reports', body),
   confirmReport: (body) => jsonPost('/api/reports/confirm', body),
-  // Anonymous reads require the per-report access token (?token=...).
+  // Appends ?token={access_token} for citizen report fetches (FR-16 anti-enumeration):
+  // anonymous reads require the per-report access token returned at submission and
+  // stored in localStorage['parkwatch_report_tokens']. Without it the API returns 401,
+  // so report ids cannot be enumerated.
   getReport:     (id, token) =>
     publicRequest(`/api/reports/${id}${token ? `?token=${encodeURIComponent(token)}` : ''}`),
 
