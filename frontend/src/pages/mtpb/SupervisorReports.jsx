@@ -113,7 +113,7 @@ export default function SupervisorReports() {
               <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Repeat Offenders</div>
             </div>
             <div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>{stats.repeat_this_month ?? '—'}</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>{stats.repeat_this_month ?? '-'}</div>
               <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>This Month</div>
             </div>
             <div>
@@ -177,9 +177,9 @@ export default function SupervisorReports() {
             ) : repeatOffenders.map((r, i) => (
               <tr key={r.plate_number ?? i} style={{ borderBottom: '1px solid var(--color-border)', height: 48 }}>
                 <td style={{ padding: '0 12px' }}><PlateBadge plate={r.plate_number ?? r.vehicle?.plate_number} /></td>
-                <td style={{ padding: '0 12px', fontSize: 13, fontWeight: 600 }}>{r.total_violations ?? '—'}</td>
+                <td style={{ padding: '0 12px', fontSize: 13, fontWeight: 600 }}>{r.total_violations ?? '-'}</td>
                 <td style={{ padding: '0 12px', fontSize: 13, color: 'var(--color-text-secondary)' }}>
-                  {r.last_violation_date ? new Date(r.last_violation_date).toLocaleDateString('en-PH') : '—'}
+                  {r.last_violation_date ? new Date(r.last_violation_date).toLocaleDateString('en-PH') : '-'}
                 </td>
               </tr>
             ))}

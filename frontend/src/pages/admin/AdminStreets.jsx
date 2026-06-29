@@ -118,7 +118,7 @@ export default function AdminStreets() {
               style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: `1px solid ${streetErr.street_name ? '#EF4444' : 'var(--color-border)'}`, fontSize: 12, marginBottom: 6, background: 'var(--color-surface)' }} />
             <select value={newStreet.barangay_id} onChange={e => { setNewStreet(p => ({ ...p, barangay_id: e.target.value })); setStreetErr(p => ({ ...p, barangay_id: '' })) }}
               style={{ width: '100%', padding: '7px 10px', borderRadius: 6, border: `1px solid ${streetErr.barangay_id ? '#EF4444' : 'var(--color-border)'}`, fontSize: 12, marginBottom: 8, background: 'var(--color-surface)' }}>
-              <option value="">— Select barangay —</option>
+              <option value="">- Select barangay -</option>
               {barangays.map(b => <option key={b.barangay_id} value={b.barangay_id}>{b.barangay_name}</option>)}
             </select>
             <button onClick={handleAddStreet} disabled={addStreetLoading}
@@ -147,7 +147,7 @@ export default function AdminStreets() {
                 }}>
                 <div style={{ fontSize: 13, fontWeight: 500, color: isSelected ? 'var(--accent)' : 'var(--color-text-primary)' }}>{s.street_name}</div>
                 <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 2 }}>
-                  {s.barangay_name ?? '—'} · {ruleCount} active rule{ruleCount !== 1 ? 's' : ''}
+                  {s.barangay_name ?? '-'} · {ruleCount} active rule{ruleCount !== 1 ? 's' : ''}
                 </div>
               </div>
             )
@@ -165,7 +165,7 @@ export default function AdminStreets() {
           <>
             <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--color-border)' }}>
               <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--color-text-primary)' }}>
-                {selected.street_name} — Parking Rules
+                {selected.street_name} - Parking Rules
               </div>
               <div style={{ fontSize: 11, color: 'var(--color-text-muted)' }}>{selected.barangay_name}</div>
             </div>
@@ -216,7 +216,7 @@ export default function AdminStreets() {
               <div style={{ padding: '16px 20px', borderTop: '1px solid var(--color-border)', display: 'flex', gap: 8, alignItems: 'center' }}>
                 <select value={newViolation} onChange={e => setNewViolation(e.target.value)}
                   style={{ flex: 1, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-bg)' }}>
-                  <option value="">— Select violation type —</option>
+                  <option value="">- Select violation type -</option>
                   {COMMON_VIOLATIONS.map(v => <option key={v} value={v}>{v}</option>)}
                 </select>
                 <input value={newViolation} onChange={e => setNewViolation(e.target.value)} placeholder="Or type custom…"

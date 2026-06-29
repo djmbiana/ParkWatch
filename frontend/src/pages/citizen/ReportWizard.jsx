@@ -7,13 +7,13 @@ import CitizenHeader from "../../components/citizen/CitizenHeader"
 import StepIndicator from "../../components/citizen/StepIndicator"
 import PhotoCapture from "../../components/citizen/PhotoCapture"
 import Dropdown from "../../components/citizen/Dropdown"
-import { isValidPlate } from "../../utils/format"
+import { isValidPlate, formatPenalty } from "../../utils/format"
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"]
 const MAX_BYTES = 10 * 1024 * 1024
 
 function submitMessage(err) {
-  if (err?.status === 409) return "A similar report already exists for this vehicle at this location."
+  if (err?.status === 409) return "This vehicle was already reported here recently - it's already with the authorities, so there's no need to report it again."
   if (err?.status === 422) return "This violation type is not active for this street."
   return err?.message || "Something went wrong. Please try again."
 }
@@ -45,7 +45,7 @@ export default function ReportWizard() {
   const [step, setStep] = useState(1)
   const [view, setView] = useState("wizard") // "wizard" | "done"
 
-  // Step 1 — photo
+  // Step 1 - photo
   const [photoFile, setPhotoFile] = useState(null)
   const [photoPreview, setPhotoPreview] = useState(null)
   const [photoUrl, setPhotoUrl] = useState(null)
@@ -60,7 +60,7 @@ export default function ReportWizard() {
   const [ocrConfidence, setOcrConfidence] = useState(null)
   const [plate, setPlate] = useState("")
 
-  // Step 2 — street + violation
+  // Step 2 - street + violation
   const [streets, setStreets] = useState([])
   const [streetsLoading, setStreetsLoading] = useState(true)
   const [selectedStreet, setSelectedStreet] = useState(null)
@@ -68,9 +68,11 @@ export default function ReportWizard() {
   const [vLoading, setVLoading] = useState(false)
   const [selectedViolation, setSelectedViolation] = useState(null)
 
-  // Step 3 — penalty preview + submit
+  // Step 3 - penalty preview + submit
   const [penalty, setPenalty] = useState(null)
   const [penaltyLoading, setPenaltyLoading] = useState(false)
+  // Advisory duplicate heads-up (this plate already reported on this street recently)
+  const [dupInfo, setDupInfo] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
   const [showConfirm, setShowConfirm] = useState(false)
@@ -138,10 +140,11 @@ export default function ReportWizard() {
     citizen.violationTypes(s.street_id).then(setVTypes).catch(() => {}).finally(() => setVLoading(false))
   }
 
-  // Step 2 → Step 3: fetch the penalty preview for the confirmed plate.
+  // Step 2 → Step 3: fetch the penalty preview for the confirmed plate, and
+  // check whether this vehicle was already reported here recently (advisory).
   const toReview = async () => {
     setStep(3)
-    setPenalty(null); setPenaltyLoading(true)
+    setPenalty(null); setPenaltyLoading(true); setDupInfo(null)
     try {
       setPenalty(await citizen.penaltyPreview(plate))
     } catch {
@@ -149,6 +152,12 @@ export default function ReportWizard() {
     } finally {
       setPenaltyLoading(false)
     }
+    try {
+      if (selectedStreet?.street_id) {
+        const dup = await citizen.checkDuplicate(plate, selectedStreet.street_id)
+        if (dup?.duplicate) setDupInfo(dup)
+      }
+    } catch { /* advisory only - never blocks the flow */ }
   }
 
   const finishSuccess = (data) => {
@@ -237,13 +246,13 @@ export default function ReportWizard() {
       <div style={{ padding: 16 }}>
         <StepIndicator current={step} label={LABELS[step]} />
 
-        {/* STEP 1 — capture */}
+        {/* STEP 1 - capture */}
         {step === 1 && (
           <div style={{ marginTop: 20 }}>
             <PhotoCapture preview={photoPreview} onSelect={handlePhotoSelect} onRetake={handleRetake} error={photoError} />
 
             <div style={{ marginTop: 16 }}>
-              <p style={{ fontSize: 14, fontWeight: 600, color: "var(--c-text)" }}>📋 Photo Tips</p>
+              <p style={{ fontSize: 14, fontWeight: 600, color: "var(--c-text)" }}>Photo Tips</p>
               {["License plate clearly visible", "Avoid extreme angles or blur", "Good lighting improves OCR accuracy"].map((tip) => (
                 <div key={tip} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
                   <Check size={16} color="var(--c-success)" strokeWidth={3} />
@@ -252,7 +261,7 @@ export default function ReportWizard() {
               ))}
             </div>
 
-            <p style={{ textAlign: "center", fontSize: 12, color: "var(--c-muted)", margin: "16px 0" }}>— or —</p>
+            <p style={{ textAlign: "center", fontSize: 12, color: "var(--c-muted)", margin: "16px 0" }}>- or -</p>
 
             <button
               type="button"
@@ -283,10 +292,10 @@ export default function ReportWizard() {
           </div>
         )}
 
-        {/* STEP 2 — plate review + location/violation */}
+        {/* STEP 2 - plate review + location/violation */}
         {step === 2 && (
           <div style={{ marginTop: 20 }}>
-            {/* OCR plate card — OCR fills the field; the citizen can edit it,
+            {/* OCR plate card - OCR fills the field; the citizen can edit it,
                 with the OCR accuracy shown below. */}
             <div style={{ background: "var(--c-primary-lt)", border: "1px solid var(--c-primary)", borderRadius: 14, padding: 16 }}>
               <p style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--c-primary)" }}>OCR Extracted Plate</p>
@@ -319,7 +328,7 @@ export default function ReportWizard() {
                   ? <>OCR accuracy: <strong style={{ color: "var(--c-primary)" }}>{Number(ocrConfidence).toFixed(1)}%</strong> · edit it above if it's wrong.</>
                   : ocrPlate
                     ? "Double-check the reading above and fix it if needed."
-                    : "Couldn't read the plate automatically — please type it in."}
+                    : "Couldn't read the plate automatically - please type it in."}
               </p>
               <p style={{ fontSize: 12, color: "var(--c-muted)", marginTop: 4 }}>Private: ABC 1234 or ABC 123 · Motorcycle: ABC 12-3456</p>
             </div>
@@ -353,7 +362,7 @@ export default function ReportWizard() {
             />
 
             <div style={{ marginTop: 12, background: "var(--c-warning-lt)", border: "1px solid var(--c-warning)", borderRadius: 10, padding: 12 }}>
-              <p style={{ fontSize: 13, color: "var(--c-warning)" }}>⚠ Violation type is validated against barangay parking rules.</p>
+              <p style={{ fontSize: 13, color: "var(--c-warning)" }}>Violation type is validated against barangay parking rules.</p>
             </div>
 
             <button type="button" disabled={!plateValid || !selectedStreet || !selectedViolation} onClick={toReview} style={primaryBtn(!plateValid || !selectedStreet || !selectedViolation)}>
@@ -362,9 +371,18 @@ export default function ReportWizard() {
           </div>
         )}
 
-        {/* STEP 3 — review & submit */}
+        {/* STEP 3 - review & submit */}
         {step === 3 && (
           <div style={{ marginTop: 20 }}>
+            {dupInfo && (
+              <div style={{ marginBottom: 16, background: "#FFFBEB", border: "1px solid #FCD34D", borderRadius: 12, padding: "12px 14px" }}>
+                <div style={{ fontSize: 13, color: "#92400E" }}>
+                  <strong>This vehicle was already reported here</strong>
+                  {dupInfo.minutes_ago != null && ` about ${dupInfo.minutes_ago === 0 ? "a moment" : `${dupInfo.minutes_ago} min`} ago`}.
+                  It's already with the authorities - you don't need to report it again. You can still submit if you believe it's a separate incident.
+                </div>
+              </div>
+            )}
             <div style={{ display: "flex", gap: 14, alignItems: "center" }}>
               {photoPreview && <img src={photoPreview} alt="Vehicle" style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10 }} />}
               <div>
@@ -386,15 +404,13 @@ export default function ReportWizard() {
               ].map(([k, v]) => (
                 <div key={k} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
                   <span style={{ fontSize: 12, color: "var(--c-muted)" }}>{k}</span>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--c-text)", textAlign: "right" }}>{v ?? "—"}</span>
+                  <span style={{ fontSize: 13, fontWeight: 600, color: "var(--c-text)", textAlign: "right" }}>{v ?? "-"}</span>
                 </div>
               ))}
               <div style={{ display: "flex", justifyContent: "space-between", padding: "6px 0" }}>
                 <span style={{ fontSize: 12, color: "var(--c-muted)" }}>Penalty</span>
                 <span style={{ fontSize: 13, fontWeight: 600, color: "var(--c-warning)", textAlign: "right" }}>
-                  {penaltyLoading ? "…" : penalty?.penalty_tier
-                    ? `${penalty.penalty_tier.tier_name} — ₱${Number(penalty.penalty_tier.fine_amount).toLocaleString()}`
-                    : "—"}
+                  {penaltyLoading ? "…" : formatPenalty(penalty?.penalty_tier)}
                 </span>
               </div>
             </div>
@@ -430,7 +446,7 @@ export default function ReportWizard() {
             </div>
             <h3 style={{ fontSize: 18, fontWeight: 700, color: "var(--c-text)", marginTop: 12 }}>Submit this report?</h3>
             <p style={{ fontSize: 13, color: "var(--c-muted)", marginTop: 6 }}>
-              Are you sure? Please double-check the plate <strong className="mono" style={{ color: "var(--c-text)" }}>{plate}</strong> and details — you can't edit the report after submitting.
+              Are you sure? Please double-check the plate <strong className="mono" style={{ color: "var(--c-text)" }}>{plate}</strong> and details - you can't edit the report after submitting.
             </p>
             <button type="button" onClick={doSubmit} style={primaryBtn(false)}>Yes, Submit</button>
             <button type="button" onClick={() => setShowConfirm(false)} style={{ width: "100%", background: "none", border: "none", color: "var(--c-muted)", fontSize: 14, marginTop: 14, cursor: "pointer" }}>Cancel</button>

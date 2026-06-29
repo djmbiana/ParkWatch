@@ -28,8 +28,8 @@ export default function SupervisorLayout() {
   return (
     <PortalLayout
       portalClass="portal-supervisor"
-      logo="MTPB Supervisor — Malate"
-      roleLabel={`Insp. ${lastName} — MTPB`}
+      logo="MTPB Supervisor - Malate"
+      roleLabel={`Insp. ${lastName} - MTPB`}
       navItems={navItems}
       pageTitle={pageTitle}
     >

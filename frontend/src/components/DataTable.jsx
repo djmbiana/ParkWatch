@@ -103,7 +103,7 @@ export default function DataTable({ columns, data, onRowClick, loading, emptyMes
                   verticalAlign: 'middle',
                   maxWidth: col.maxWidth,
                 }}>
-                  {col.render ? col.render(row[col.key], row) : (row[col.key] ?? '—')}
+                  {col.render ? col.render(row[col.key], row) : (row[col.key] ?? '-')}
                 </td>
               ))}
             </tr>

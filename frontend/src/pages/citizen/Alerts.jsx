@@ -9,7 +9,7 @@ import { formatDateTime } from "../../utils/format"
 
 // Status → the citizen-facing alert line + the timestamp field that drives it.
 const ALERT_FOR = {
-  pending:      { msg: "Submitted — pending barangay verification.", ts: "submitted_at" },
+  pending:      { msg: "Submitted - pending barangay verification.", ts: "submitted_at" },
   verified:     { msg: "Verified by the barangay.",                  ts: "verified_at" },
   acknowledged: { msg: "Acknowledged by MTPB.",                      ts: "acknowledged_at" },
   dispatched:   { msg: "An officer has been dispatched.",            ts: "dispatched_at" },
@@ -64,7 +64,7 @@ export default function Alerts() {
               <div>
                 <p className="mono" style={{ fontSize: 12, color: "var(--c-muted)" }}>RPT-{a.report_id}</p>
                 <p style={{ fontSize: 14, color: "var(--c-text)", marginTop: 2 }}>{a.msg}</p>
-                <p style={{ fontSize: 12, color: "var(--c-muted)", marginTop: 2 }}>{formatDateTime(a.at) ?? "—"}</p>
+                <p style={{ fontSize: 12, color: "var(--c-muted)", marginTop: 2 }}>{formatDateTime(a.at) ?? "-"}</p>
               </div>
               <StatusBadge status={a.status} />
             </div>

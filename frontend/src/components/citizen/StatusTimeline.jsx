@@ -121,7 +121,7 @@ export default function StatusTimeline({ report }) {
       {status === "resolved" && (
         <div style={{ marginTop: 12, background: "var(--c-success-lt)", borderRadius: 10, padding: 12 }}>
           <p style={{ fontSize: 13, color: "var(--c-success)", fontWeight: 600 }}>
-            ✓ {report.resolution_outcome || "Resolved"}
+            {report.resolution_outcome || "Resolved"}
           </p>
           {report.ticket_reference && (
             <p className="mono" style={{ fontSize: 13, color: "var(--c-muted)", marginTop: 4 }}>

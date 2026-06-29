@@ -218,13 +218,13 @@ export default function AdminUsers() {
                   <td style={{ padding: '0 12px' }}><RoleBadge role={u.role} /></td>
                   <td style={{ padding: '0 12px', fontSize: 13, color: 'var(--color-text-secondary)' }}>{u.email}</td>
                   <td style={{ padding: '0 12px', fontSize: 12, color: 'var(--color-text-secondary)' }}>
-                    {u.role === 'brgy_official' ? (u.barangay_name ?? '—')
-                     : u.role === 'mtpb_officer' || u.role === 'mtpb_supervisor' ? `Badge #${u.badge_number ?? u.employee_id ?? '—'}`
-                     : '—'}
+                    {u.role === 'brgy_official' ? (u.barangay_name ?? '-')
+                     : u.role === 'mtpb_officer' || u.role === 'mtpb_supervisor' ? `Badge #${u.badge_number ?? u.employee_id ?? '-'}`
+                     : '-'}
                   </td>
                   <td style={{ padding: '0 12px' }}><StatusPill user={u} /></td>
                   <td style={{ padding: '0 12px', fontSize: 12, color: 'var(--color-text-muted)' }}>
-                    {u.created_at ? new Date(u.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) : '—'}
+                    {u.created_at ? new Date(u.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) : '-'}
                   </td>
                   <td style={{ padding: '0 12px' }}>
                     {u.role !== 'citizen' && u.is_active ? (
@@ -270,7 +270,7 @@ export default function AdminUsers() {
                     <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>Barangay *</label>
                     <select value={form.barangay_id} onChange={e => setForm(p => ({ ...p, barangay_id: e.target.value }))}
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: `1px solid ${formErr.barangay_id ? '#EF4444' : 'var(--color-border)'}`, fontSize: 13, background: 'var(--color-bg)' }}>
-                      <option value="">— Select barangay —</option>
+                      <option value="">- Select barangay -</option>
                       {barangays.map(b => <option key={b.barangay_id} value={b.barangay_id}>{b.barangay_name}</option>)}
                     </select>
                     {formErr.barangay_id && <div style={{ fontSize: 11, color: '#EF4444', marginTop: 3 }}>{formErr.barangay_id}</div>}
@@ -285,8 +285,7 @@ export default function AdminUsers() {
               </>
             ) : (
               <div>
-                <div style={{ background: '#FFFBEB', border: '1px solid #F59E0B', borderRadius: 6, padding: '10px 14px', display: 'flex', gap: 10, marginBottom: 16 }}>
-                  <span style={{ fontSize: 14 }}>⚠</span>
+                <div style={{ background: '#FFFBEB', border: '1px solid #F59E0B', borderRadius: 6, padding: '10px 14px', marginBottom: 16 }}>
                   <span style={{ fontSize: 12, color: '#92400E' }}>Share this password securely. It will not be shown again.</span>
                 </div>
                 <div style={{ marginBottom: 16 }}>
@@ -325,7 +324,7 @@ export default function AdminUsers() {
                 <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>Barangay</label>
                 <select value={form.barangay_id} onChange={e => setForm(p => ({ ...p, barangay_id: e.target.value }))}
                   style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-bg)' }}>
-                  <option value="">— Select barangay —</option>
+                  <option value="">- Select barangay -</option>
                   {barangays.map(b => <option key={b.barangay_id} value={b.barangay_id}>{b.barangay_name}</option>)}
                 </select>
               </div>

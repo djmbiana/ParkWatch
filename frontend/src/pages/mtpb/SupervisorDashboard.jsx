@@ -64,7 +64,7 @@ export default function SupervisorDashboard() {
                 onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                 <td style={{ padding: '0 12px' }}><span className="mono" style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>RPT-{r.report_id}</span></td>
                 <td style={{ padding: '0 12px' }}><PlateBadge plate={r.plate_number} /></td>
-                <td style={{ padding: '0 12px', fontSize: 13 }}>{r.street_name ?? '—'}</td>
+                <td style={{ padding: '0 12px', fontSize: 13 }}>{r.street_name ?? '-'}</td>
                 <td style={{ padding: '0 12px' }}><StatusBadge status={r.status} /></td>
               </tr>
             ))}

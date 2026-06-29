@@ -7,7 +7,7 @@ import StatusBadge from '../../components/StatusBadge'
 import PlateBadge from '../../components/PlateBadge'
 
 function fmt(dt) {
-  if (!dt) return '—'
+  if (!dt) return '-'
   return new Date(dt).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })
 }
 

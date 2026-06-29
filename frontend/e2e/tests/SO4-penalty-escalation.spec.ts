@@ -6,10 +6,11 @@ import { getToken } from '../helpers/auth';
  * SO4 — Automated Penalty Tier Escalation (paper p.162).
  * Target: "Correct tier applied in 90% of test cases."
  *
- * Verified seed (RA 4136 + MMDA MMTC 2023): tiers are
- *   min 0–1  → ₱1,000  (1st Offense, no clamp)
- *   min 2–2  → ₱2,000  (2nd Offense)
- *   min 3–∞  → ₱3,000  (3rd Offense+, requires clamping)
+ * 4-tier escalating enforcement (migration 022):
+ *   min 0–1  → ₱0     Verbal Warning  (no fine, no clamp)
+ *   min 2–2  → ₱500   Ticket
+ *   min 3–3  → ₱1,000 Wheel Clamp     (requires_clamping)
+ *   min 4–∞  → ₱2,000 Impound         (requires_impound)
  */
 async function tiers(ctx: APIRequestContext) {
   const token = await getToken('admin');
@@ -21,25 +22,27 @@ async function tiers(ctx: APIRequestContext) {
 }
 
 test.describe('SO4 — Automated Penalty Tier Escalation', () => {
-  test('TC-SO4-01: First violation maps to the 1st-Offense tier (₱1,000, no clamp)', async () => {
+  test('TC-SO4-01: First violation maps to the 1st-Offense tier (Verbal Warning, no fine)', async () => {
     const ctx = await request.newContext();
     const { list } = await tiers(ctx);
     const first = list.find((t) => Number(t.min_violations) === 0);
     expect(first).toBeDefined();
-    expect(parseFloat(first.fine_amount)).toBe(1000);
+    expect(parseFloat(first.fine_amount)).toBe(0);
     expect(Boolean(Number(first.requires_clamping))).toBe(false);
     await ctx.dispose();
   });
 
-  test('TC-SO4-02: Tiers follow RA 4136 + MMDA fines and escalate ₱1000→2000→3000', async () => {
+  test('TC-SO4-02: Tiers escalate Verbal Warning → Ticket → Wheel Clamp → Impound (₱0/500/1000/2000)', async () => {
     const ctx = await request.newContext();
     const { list } = await tiers(ctx);
     const sorted = [...list].sort((a, b) => Number(a.min_violations) - Number(b.min_violations));
-    expect(parseFloat(sorted[0].fine_amount)).toBe(1000);
-    expect(parseFloat(sorted[1].fine_amount)).toBe(2000);
-    expect(parseFloat(sorted[2].fine_amount)).toBe(3000);
-    // The top tier requires clamping (3rd offense+).
+    expect(parseFloat(sorted[0].fine_amount)).toBe(0);     // 1st — Verbal Warning
+    expect(parseFloat(sorted[1].fine_amount)).toBe(500);   // 2nd — Ticket
+    expect(parseFloat(sorted[2].fine_amount)).toBe(1000);  // 3rd — Wheel Clamp
+    expect(parseFloat(sorted[3].fine_amount)).toBe(2000);  // 4th — Impound
+    // Clamping on the 3rd tier, impound on the 4th.
     expect(Boolean(Number(sorted[2].requires_clamping))).toBe(true);
+    expect(Boolean(Number(sorted[3].requires_impound))).toBe(true);
     await ctx.dispose();
   });
 

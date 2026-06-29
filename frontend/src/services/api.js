@@ -20,7 +20,7 @@ async function request(path, options = {}) {
       ...options,
     })
   } catch {
-    if (_toast) _toast('Network error — check your connection.', 'error')
+    if (_toast) _toast('Network error - check your connection.', 'error')
     throw new Error('Network error')
   }
 
@@ -64,7 +64,7 @@ export const auth = {
     request('/api/users/me', { method: 'PATCH', body: JSON.stringify(fields) }),
 }
 
-// Reports — barangay
+// Reports - barangay
 export const reports = {
   barangayQueue:  (params = {}) => request(`/api/reports/queue/barangay${qs(params)}`),
   barangayStats:  () => request('/api/reports/stats/barangay'),
@@ -85,7 +85,7 @@ export const vehicles = {
   history: (plate) => request(`/api/vehicles/${encodeURIComponent(plate)}/history`),
 }
 
-// Admin — users
+// Admin - users
 export const adminUsers = {
   list:       (params = {}) => request(`/api/admin/users${qs(params)}`),
   create:     (body) =>        request('/api/admin/users',              { method: 'POST',  body: JSON.stringify(body) }),
@@ -95,13 +95,13 @@ export const adminUsers = {
   officers:   () =>            request('/api/admin/officers'),
 }
 
-// Admin — barangays
+// Admin - barangays
 export const adminBarangays = {
   list:   (params = {}) => request(`/api/admin/barangays${qs(params)}`),
   toggle: (id) =>          request(`/api/admin/barangays/${id}/toggle`, { method: 'PATCH' }),
 }
 
-// Admin — streets & rules
+// Admin - streets & rules
 export const adminStreets = {
   list:           () =>       request('/api/admin/streets'),
   create:         (body) =>   request('/api/admin/streets',                    { method: 'POST',  body: JSON.stringify(body) }),
@@ -109,7 +109,7 @@ export const adminStreets = {
   createRule:     (body) =>   request('/api/admin/parking-rules',              { method: 'POST',  body: JSON.stringify(body) }),
 }
 
-// Admin — penalty tiers
+// Admin - penalty tiers
 export const adminTiers = {
   list:   () =>         request('/api/admin/penalty-tiers'),
   update: (id, body) => request(`/api/admin/penalty-tiers/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
@@ -122,7 +122,7 @@ function qs(params) {
 }
 
 // ---------------------------------------------------------------------------
-// Citizen (anonymous) API — per the research paper, citizens have no account.
+// Citizen (anonymous) API - per the research paper, citizens have no account.
 // These calls send NO Authorization header and never redirect to /login on
 // auth errors. Thrown errors carry `.status` so the wizard can branch on
 // 409 (duplicate) / 422 (rule inactive); `.isNetwork` flags connectivity loss.
@@ -138,8 +138,8 @@ async function publicRequest(path, { timeoutMs = 60000, ...options } = {}) {
     res = await fetch(`${BASE}${path}`, { ...options, signal: controller.signal })
   } catch (e) {
     const err = e?.name === 'AbortError'
-      ? new Error('This is taking too long — please check your connection and try again.')
-      : new Error('Network error — check your connection.')
+      ? new Error('This is taking too long - please check your connection and try again.')
+      : new Error('Network error - check your connection.')
     err.isNetwork = true
     throw err
   } finally {
@@ -175,7 +175,7 @@ export const citizen = {
   streets:        () =>          publicRequest('/api/streets'),
   violationTypes: (streetId) =>  publicRequest(`/api/streets/${streetId}/violation-types`),
 
-  // Photo upload — multipart/form-data, field "photo". Let the browser set the
+  // Photo upload - multipart/form-data, field "photo". Let the browser set the
   // multipart boundary, so no Content-Type header here.
   uploadPhoto: (file) => {
     const form = new FormData()
@@ -186,6 +186,8 @@ export const citizen = {
   // Preview steps (no report created yet)
   ocrPreview:     (photo_url) => jsonPost('/api/reports/ocr', { photo_url }),
   penaltyPreview: (plate) =>     jsonPost('/api/reports/penalty-preview', { plate }),
+  // Advisory: has this plate already been reported on this street recently?
+  checkDuplicate: (plate, street_id) => jsonPost('/api/reports/check-duplicate', { plate, street_id }),
 
   // Submission pipeline
   createReport:  (body) => jsonPost('/api/reports', body),
@@ -197,7 +199,7 @@ export const citizen = {
   getReport:     (id, token) =>
     publicRequest(`/api/reports/${id}${token ? `?token=${encodeURIComponent(token)}` : ''}`),
 
-  // FCM token registration (anonymous) — best-effort, see CitizenLayout
+  // FCM token registration (anonymous) - best-effort, see CitizenLayout
   registerToken: (fcm_token) => jsonPost('/api/notifications/register-token', { fcm_token }),
 }
 

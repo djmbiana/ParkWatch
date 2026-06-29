@@ -61,6 +61,8 @@ router.post('/confirm', reportSubmissionLimiter, optionalAuthenticate, confirmVa
 // Preview steps (no DB write) that power the Step-2 plate card + Step-3 penalty.
 router.post('/ocr',             optionalAuthenticate, body('photo_url').isString().trim().notEmpty(), reportController.ocrPreview);
 router.post('/penalty-preview', optionalAuthenticate, body('plate').isString().trim().notEmpty(),     reportController.penaltyPreview);
+// Advisory pre-submission check: has this plate already been reported here recently?
+router.post('/check-duplicate', optionalAuthenticate, body('plate').isString().trim().notEmpty(), body('street_id').isInt({ min: 1 }), reportController.checkDuplicate);
 router.get ('/mine',    authenticate, authorize(ROLES.CITIZEN), reportController.mine);
 
 // --- Barangay queue -------------------------------------------------------

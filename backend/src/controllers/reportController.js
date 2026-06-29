@@ -35,6 +35,19 @@ const duplicateWindowMinutes = () =>
 const fail = (res, statusCode, error) =>
   res.status(statusCode).json({ success: false, error, message: error });
 
+// Public shape for a PENALTY_TIERS row (4-tier structure, migration 022).
+const formatTier = (tier) =>
+  tier
+    ? {
+        tier_id: tier.tier_id,
+        tier_name: tier.tier_name,
+        enforcement_action: tier.enforcement_action,
+        fine_amount: Number(tier.fine_amount),
+        requires_clamping: !!tier.requires_clamping,
+        requires_impound: !!tier.requires_impound,
+      }
+    : null;
+
 // Public handle for anonymous reporters, per the paper's "Reporter #XXXX"
 // format (p.122). Anonymous submitters have no USERS row, so the alias is
 // generated here and stored on the report itself.
@@ -114,7 +127,7 @@ const finishPipeline = async (res, ctx) => {
     [plate, streetId, duplicateWindowMinutes()]
   );
   if (duplicate) {
-    return fail(res, 409, 'A duplicate report already exists for this vehicle at this location.');
+    return fail(res, 409, 'This vehicle was already reported at this location recently. It is already with the authorities — no need to report it again.');
   }
 
   // Step 6 — cross-barangay lookup: one VEHICLES row per plate, shared by all
@@ -149,7 +162,7 @@ const finishPipeline = async (res, ctx) => {
   // of the report).
   const offenseNumber = vehicle.total_violations + 1;
   const [[tier]] = await pool.execute(
-    `SELECT tier_id, tier_name, fine_amount, requires_clamping
+    `SELECT tier_id, tier_name, enforcement_action, fine_amount, requires_clamping, requires_impound
        FROM PENALTY_TIERS
       WHERE min_violations <= ?
         AND (max_violations IS NULL OR max_violations >= ?)
@@ -227,14 +240,7 @@ const finishPipeline = async (res, ctx) => {
       status: 'pending',
       anonymous_alias: anonymousAlias,
       access_token: accessToken,
-      penalty_tier: tier
-        ? {
-            tier_id: tier.tier_id,
-            tier_name: tier.tier_name,
-            fine_amount: Number(tier.fine_amount),
-            requires_clamping: !!tier.requires_clamping,
-          }
-        : null,
+      penalty_tier: formatTier(tier),
     },
   });
 };
@@ -389,7 +395,7 @@ const penaltyPreview = async (req, res, next) => {
     const offenseNumber = count + 1; // the offense this submission would be
 
     const [[tier]] = await pool.execute(
-      `SELECT tier_name, fine_amount, requires_clamping
+      `SELECT tier_id, tier_name, enforcement_action, fine_amount, requires_clamping, requires_impound
          FROM PENALTY_TIERS
         WHERE min_violations <= ? AND (max_violations IS NULL OR max_violations >= ?)
         ORDER BY min_violations DESC
@@ -402,9 +408,7 @@ const penaltyPreview = async (req, res, next) => {
       message: 'Success',
       data: {
         offense_count: offenseNumber,
-        penalty_tier: tier
-          ? { tier_name: tier.tier_name, fine_amount: Number(tier.fine_amount), requires_clamping: !!tier.requires_clamping }
-          : null,
+        penalty_tier: formatTier(tier),
       },
     });
   } catch (err) {
@@ -534,7 +538,7 @@ const getById = async (req, res, next) => {
               r.escalated_at, r.resolved_at,
               s.street_name, s.barangay_id AS street_barangay_id,
               b.barangay_name,
-              t.tier_name, t.fine_amount, t.requires_clamping,
+              t.tier_name, t.enforcement_action, t.fine_amount, t.requires_clamping, t.requires_impound,
               v.plate_number, v.total_violations, v.is_repeat_offender,
               COALESCE(r.anonymous_alias, u.anonymous_alias) AS anonymous_alias
          FROM VIOLATION_REPORTS r
@@ -612,8 +616,10 @@ const getById = async (req, res, next) => {
         penalty_tier: report.tier_name
           ? {
               tier_name: report.tier_name,
+              enforcement_action: report.enforcement_action,
               fine_amount: Number(report.fine_amount),
               requires_clamping: !!report.requires_clamping,
+              requires_impound: !!report.requires_impound,
             }
           : null,
         vehicle: report.vehicle_id
@@ -642,4 +648,57 @@ const getById = async (req, res, next) => {
   }
 };
 
-module.exports = { create, confirm, mine, getById, ocrPreview, penaltyPreview };
+// ---------------------------------------------------------------------------
+// POST /api/reports/check-duplicate  { plate, street_id }
+// Lets the citizen app warn — BEFORE submitting — that this vehicle was already
+// reported at this location within the dedup window, so a second reporter knows
+// it's already handled and the vehicle doesn't accrue duplicate offenses. This
+// is advisory only; the hard guard still runs at create() (returns 409).
+// ---------------------------------------------------------------------------
+const checkDuplicate = async (req, res, next) => {
+  const streetId = parseInt(req.body.street_id, 10);
+  const plate = req.body.plate;
+  if (!plate || !Number.isInteger(streetId)) {
+    return fail(res, 400, 'plate and street_id are required.');
+  }
+
+  try {
+    const { valid, normalized } = await ocrService.validatePlateFormat(plate);
+    // An invalid plate can't match anything; let the main flow surface the format
+    // error instead of blocking the pre-check.
+    if (!valid) return res.json({ success: true, message: 'Success', data: { duplicate: false } });
+
+    const [[dup]] = await pool.execute(
+      `SELECT r.report_id, r.status, s.street_name,
+              TIMESTAMPDIFF(MINUTE, r.submitted_at, NOW()) AS minutes_ago
+         FROM VIOLATION_REPORTS r
+         JOIN VEHICLES v       ON v.vehicle_id = r.vehicle_id
+         LEFT JOIN STREETS s   ON s.street_id  = r.street_id
+        WHERE v.plate_number = ?
+          AND r.street_id = ?
+          AND r.submitted_at > NOW() - INTERVAL ? MINUTE
+          AND r.status NOT IN ('rejected')
+        ORDER BY r.submitted_at DESC
+        LIMIT 1`,
+      [normalized, streetId, duplicateWindowMinutes()]
+    );
+
+    return res.json({
+      success: true,
+      message: 'Success',
+      data: dup
+        ? {
+            duplicate: true,
+            report_id: dup.report_id,
+            street_name: dup.street_name,
+            minutes_ago: Number(dup.minutes_ago),
+            window_minutes: duplicateWindowMinutes(),
+          }
+        : { duplicate: false },
+    });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+module.exports = { create, confirm, mine, getById, ocrPreview, penaltyPreview, checkDuplicate };

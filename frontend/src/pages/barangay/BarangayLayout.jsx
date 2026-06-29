@@ -28,8 +28,8 @@ export default function BarangayLayout() {
   return (
     <PortalLayout
       portalClass="portal-barangay"
-      logo="ParkWatch — Barangay"
-      roleLabel={`Barangay Official — Brgy. ${barangayName}`}
+      logo="ParkWatch - Barangay"
+      roleLabel={`Barangay Official - Brgy. ${barangayName}`}
       navItems={navItems}
       pageTitle={pageTitle}
     >

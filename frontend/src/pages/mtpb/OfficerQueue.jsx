@@ -17,7 +17,7 @@ function TimeLeft({ verifiedAt }) {
   const [urgent, setUrgent] = useState(false)
 
   useEffect(() => {
-    if (!verifiedAt) { setDisplay('—'); return }
+    if (!verifiedAt) { setDisplay('-'); return }
     const update = () => {
       const mins = Math.floor((Date.now() - new Date(verifiedAt)) / 60000)
       setUrgent(mins < 10)
@@ -29,7 +29,7 @@ function TimeLeft({ verifiedAt }) {
     return () => clearInterval(id)
   }, [verifiedAt])
 
-  const color = urgent ? '#EF4444' : display === '—' ? 'var(--color-text-muted)'
+  const color = urgent ? '#EF4444' : display === '-' ? 'var(--color-text-muted)'
     : parseInt(display) <= 30 ? '#F59E0B' : 'var(--color-text-muted)'
 
   return <span style={{ fontSize: 12, fontWeight: 600, color }}>{display}</span>
@@ -43,7 +43,7 @@ function PriorityCell({ row }) {
 }
 
 const TABS = ['all', 'repeat', 'escalated']
-const TAB_LABELS = { all: 'All', repeat: '⚠ Repeat Offenders', escalated: '▲ Escalated' }
+const TAB_LABELS = { all: 'All', repeat: 'Repeat Offenders', escalated: 'Escalated' }
 
 export default function OfficerQueue() {
   const { setPageTitle } = useOutletContext()
@@ -259,7 +259,7 @@ export default function OfficerQueue() {
                   <td style={{ padding: '0 12px' }}><PriorityCell row={row} /></td>
                   <td style={{ padding: '0 12px' }}><span className="mono" style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>RPT-{row.report_id}</span></td>
                   <td style={{ padding: '0 12px' }}><PlateBadge plate={row.plate_number} confidence={row.ocr_confidence_score} manual={row.manual_plate_input} /></td>
-                  <td style={{ padding: '0 12px', fontSize: 13 }}>{row.street_name ?? '—'}</td>
+                  <td style={{ padding: '0 12px', fontSize: 13 }}>{row.street_name ?? '-'}</td>
                   <td style={{ padding: '0 12px' }}><PenaltyTierBadge tier_name={row.tier_name} /></td>
                   <td style={{ padding: '0 12px' }}><TimeLeft verifiedAt={row.verified_at} /></td>
                   <td style={{ padding: '0 12px' }}><StatusBadge status={row.status} /></td>

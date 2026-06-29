@@ -112,10 +112,10 @@ export default function OfficerPlateSearch() {
                   <tr><td colSpan={6} style={{ padding: '32px 12px', textAlign: 'center', fontSize: 13, color: 'var(--color-text-muted)' }}>No records found</td></tr>
                 ) : result.history.map(h => (
                   <tr key={h.report_id} style={{ borderBottom: '1px solid var(--color-border)', height: 48 }}>
-                    <td style={{ padding: '0 12px', fontSize: 13 }}>{h.submitted_at ? new Date(h.submitted_at).toLocaleDateString('en-PH') : '—'}</td>
-                    <td style={{ padding: '0 12px', fontSize: 13 }}>{h.barangay_name ?? '—'}</td>
-                    <td style={{ padding: '0 12px', fontSize: 13 }}>{h.street_name ?? '—'}</td>
-                    <td style={{ padding: '0 12px', fontSize: 13 }}>{h.violation_type ?? '—'}</td>
+                    <td style={{ padding: '0 12px', fontSize: 13 }}>{h.submitted_at ? new Date(h.submitted_at).toLocaleDateString('en-PH') : '-'}</td>
+                    <td style={{ padding: '0 12px', fontSize: 13 }}>{h.barangay_name ?? '-'}</td>
+                    <td style={{ padding: '0 12px', fontSize: 13 }}>{h.street_name ?? '-'}</td>
+                    <td style={{ padding: '0 12px', fontSize: 13 }}>{h.violation_type ?? '-'}</td>
                     <td style={{ padding: '0 12px' }}><StatusBadge status={h.status} /></td>
                     <td style={{ padding: '0 12px' }}><PenaltyTierBadge tier_name={h.penalty_tier?.tier_name} /></td>
                   </tr>

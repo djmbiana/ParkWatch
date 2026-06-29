@@ -65,7 +65,7 @@ export default function ViolationHeatMap() {
         fillColor: '#EF4444',
         fillOpacity: 0.5,
       })
-        .bindTooltip(`${p.street_name} (${p.barangay_name}) — ${p.violation_count} violation${p.violation_count === 1 ? '' : 's'}`)
+        .bindTooltip(`${p.street_name} (${p.barangay_name}) - ${p.violation_count} violation${p.violation_count === 1 ? '' : 's'}`)
         .addTo(map)
       layersRef.current.push(marker)
     })

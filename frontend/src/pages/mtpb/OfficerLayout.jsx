@@ -7,7 +7,7 @@ import { reports } from '../../services/api'
 
 export default function OfficerLayout() {
   const user = getStoredUser()
-  const badge = user?.badge_number ?? user?.employee_id ?? '—'
+  const badge = user?.badge_number ?? user?.employee_id ?? '-'
   const [queueCount, setQueueCount] = useState(0)
   const [pageTitle, setPageTitle] = useState('Enforcement Queue')
 
@@ -27,8 +27,8 @@ export default function OfficerLayout() {
   return (
     <PortalLayout
       portalClass="portal-mtpb"
-      logo="MTPB Portal — Malate"
-      roleLabel={`MTPB Officer — Badge #${badge}`}
+      logo="MTPB Portal - Malate"
+      roleLabel={`MTPB Officer - Badge #${badge}`}
       navItems={navItems}
       pageTitle={pageTitle}
     >

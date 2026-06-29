@@ -5,13 +5,13 @@ import CitizenHeader from "../../components/citizen/CitizenHeader"
 import LoadingSpinner from "../../components/LoadingSpinner"
 import StatusBadge from "../../components/StatusBadge"
 import StatusTimeline from "../../components/citizen/StatusTimeline"
-import { formatDateTime } from "../../utils/format"
+import { formatDateTime, formatPenalty } from "../../utils/format"
 
 function DetailRow({ label, value, strong }) {
   return (
     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", minHeight: 44, padding: "6px 16px", borderBottom: "1px solid var(--c-border)", gap: 16 }}>
       <span style={{ fontSize: 13, color: "var(--c-muted)" }}>{label}</span>
-      <span style={{ fontSize: 13, fontWeight: strong ? 600 : 500, color: "var(--c-text)", textAlign: "right" }}>{value ?? "—"}</span>
+      <span style={{ fontSize: 13, fontWeight: strong ? 600 : 500, color: "var(--c-text)", textAlign: "right" }}>{value ?? "-"}</span>
     </div>
   )
 }
@@ -62,7 +62,7 @@ export default function ReportDetail() {
             )}
             <div>
               <p style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--c-muted)" }}>Plate Number</p>
-              <p className="mono" style={{ fontSize: 24, fontWeight: 700, color: "var(--c-primary-dk)" }}>{plate || "—"}</p>
+              <p className="mono" style={{ fontSize: 24, fontWeight: 700, color: "var(--c-primary-dk)" }}>{plate || "-"}</p>
               <p style={{ fontSize: 13, color: "var(--c-muted)", marginTop: 2 }}>{subtitle}</p>
             </div>
           </div>
@@ -74,11 +74,11 @@ export default function ReportDetail() {
 
           {/* Supporting details (UC-02 fields) */}
           <div style={{ marginTop: 16, background: "var(--c-surface)", border: "1px solid var(--c-border)", borderRadius: 12, overflow: "hidden" }}>
-            <DetailRow label="Plate source" value={report.ocr_extracted_plate ? "Read by OCR" : report.manual_plate_input ? "Entered manually" : "—"} />
+            <DetailRow label="Plate source" value={report.ocr_extracted_plate ? "Read by OCR" : report.manual_plate_input ? "Entered manually" : "-"} />
             <DetailRow label="Submitted" value={formatDateTime(report.submitted_at)} />
             <DetailRow
               label="Penalty"
-              value={report.penalty_tier ? `${report.penalty_tier.tier_name} — ₱${Number(report.penalty_tier.fine_amount).toLocaleString()}` : "—"}
+              value={formatPenalty(report.penalty_tier)}
               strong
             />
           </div>

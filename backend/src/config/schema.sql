@@ -89,12 +89,14 @@ CREATE TABLE IF NOT EXISTS VEHICLES (
 -- ─── 5. PENALTY_TIERS ────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS PENALTY_TIERS (
   tier_id           INT           NOT NULL AUTO_INCREMENT,
-  tier_name         VARCHAR(50)   NOT NULL,              -- e.g. '1st Offense', '2nd Offense'
-  min_violations    INT           NOT NULL,              -- lower bound of violation count for this tier
-  max_violations    INT,                                 -- upper bound; NULL = no ceiling
-  fine_amount       DECIMAL(10,2) NOT NULL,              -- PHP
-  requires_clamping BOOLEAN       NOT NULL DEFAULT FALSE,
-  created_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  tier_name          VARCHAR(50)   NOT NULL,             -- e.g. '1st Offense', '2nd Offense'
+  enforcement_action VARCHAR(50),                        -- [mig022] 'Verbal Warning' | 'Ticket' | 'Wheel Clamp' | 'Impound'
+  min_violations     INT           NOT NULL,             -- lower bound of violation count for this tier
+  max_violations     INT,                                -- upper bound; NULL = no ceiling
+  fine_amount        DECIMAL(10,2) NOT NULL,             -- PHP (0 for a verbal warning)
+  requires_clamping  BOOLEAN       NOT NULL DEFAULT FALSE,
+  requires_impound   BOOLEAN       NOT NULL DEFAULT FALSE, -- [mig022]
+  created_at         DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (tier_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -123,12 +125,15 @@ CREATE TABLE IF NOT EXISTS VIOLATION_REPORTS (
   verified_by         INT,                               -- MTPB/brgy user who verified the report
   assigned_officer_id INT,                               -- MTPB officer dispatched to the scene
   is_escalated        BOOLEAN       NOT NULL DEFAULT FALSE,
+  renotified          BOOLEAN       NOT NULL DEFAULT FALSE,  -- [mig017] escalation job stage-1 flag
+  renotified_at       DATETIME,                              -- [mig017]
   ticket_reference    VARCHAR(100),                      -- physical ticket number once issued
   submitted_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   verified_at         DATETIME,
   acknowledged_at     DATETIME,
   dispatched_at       DATETIME,
   escalated_at        DATETIME,
+  escalation_reason   VARCHAR(255),                          -- [mig018] why the report was escalated
   resolved_at         DATETIME,
   created_at          DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at          DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -204,5 +209,70 @@ CREATE TABLE IF NOT EXISTS PUBLIC_FCM_TOKENS (
   PRIMARY KEY (token_id),
   UNIQUE KEY uq_fcm_token_hash (token_hash)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ─── 10. USER_FCM_TOKENS ─────────────────────────────────────────────────────
+-- [mig017] Device token for an authenticated staff account (keyed by user_id),
+-- used by notificationService to push to a known recipient.
+CREATE TABLE IF NOT EXISTS USER_FCM_TOKENS (
+  user_id     INT          NOT NULL,
+  fcm_token   VARCHAR(512) NOT NULL,
+  created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (user_id),
+  CONSTRAINT fk_user_fcm_user
+    FOREIGN KEY (user_id) REFERENCES USERS (user_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ─── 11. MTPB_QUEUE ──────────────────────────────────────────────────────────
+-- [mig021] Source of truth for the MTPB response timer + escalation state of a
+-- verified report. The escalation job (UC-10) reads/writes this table.
+CREATE TABLE IF NOT EXISTS MTPB_QUEUE (
+  queue_id          INT           NOT NULL AUTO_INCREMENT PRIMARY KEY,
+  report_id         INT           NOT NULL UNIQUE,
+  queued_at         DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  response_deadline DATETIME      NOT NULL,
+  renotified        BOOLEAN       NOT NULL DEFAULT FALSE,
+  renotified_at     DATETIME      NULL,
+  is_escalated      BOOLEAN       NOT NULL DEFAULT FALSE,
+  escalated_at      DATETIME      NULL,
+  escalation_reason VARCHAR(255)  NULL,
+  created_at        DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_mtpb_queue_report
+    FOREIGN KEY (report_id) REFERENCES VIOLATION_REPORTS(report_id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- ─── Migration bookkeeping ───────────────────────────────────────────────────
+-- This file is the full current schema (through migration 021), so record every
+-- migration as already-applied. Without this, `npm run migrate` on a fresh boot
+-- would re-run the historical ALTER/ADD COLUMN migrations and fail on duplicates.
+CREATE TABLE IF NOT EXISTS SCHEMA_MIGRATIONS (
+  migration_name VARCHAR(255) NOT NULL,
+  applied_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (migration_name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+INSERT IGNORE INTO SCHEMA_MIGRATIONS (migration_name) VALUES
+  ('001_create_barangays.sql'),
+  ('002_create_streets.sql'),
+  ('003_create_vehicles.sql'),
+  ('004_create_penalty_tiers.sql'),
+  ('005_create_violation_reports.sql'),
+  ('006_create_parking_rules.sql'),
+  ('007_create_notification_log.sql'),
+  ('008_add_escalated_status.sql'),
+  ('009_fix_anonymous_alias_not_null.sql'),
+  ('010_fix_email_length.sql'),
+  ('011_fix_nullable_columns.sql'),
+  ('012_add_report_anonymous_alias.sql'),
+  ('013_create_public_fcm_tokens.sql'),
+  ('014_add_report_access_token.sql'),
+  ('015_add_report_fcm_token.sql'),
+  ('016_add_street_coordinates.sql'),
+  ('017_staff_fcm_tokens_and_escalation_tracking.sql'),
+  ('018_add_report_escalation_reason.sql'),
+  ('019_clean_violation_types.sql'),
+  ('020_fix_penalty_tier_fines.sql'),
+  ('021_create_mtpb_queue.sql'),
+  ('022_penalty_4tier.sql');
 
 SET FOREIGN_KEY_CHECKS = 1;

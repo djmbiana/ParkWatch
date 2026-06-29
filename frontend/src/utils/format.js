@@ -1,6 +1,6 @@
 // Shared formatters for the citizen app.
 
-// "Sep 14, 2025 · 10:30 AM" — the timestamp format used throughout the
+// "Sep 14, 2025 · 10:30 AM" - the timestamp format used throughout the
 // citizen screens (matches the research paper's report mockups).
 export function formatDateTime(value) {
   if (!value) return null
@@ -17,4 +17,14 @@ export const PLATE_RE = /^[A-Z]{3} \d{4}$|^[A-Z]{3} \d{3}$|^[A-Z]{3} \d{2}-\d{4}
 
 export function isValidPlate(value) {
   return PLATE_RE.test((value ?? '').trim().toUpperCase())
+}
+
+// Human-readable penalty for the 4-tier structure (migration 022), e.g.
+// "1st Offense - Verbal Warning · No fine" or "2nd Offense - Ticket · ₱500".
+export function formatPenalty(tier) {
+  if (!tier) return '-'
+  const action = tier.enforcement_action ? ` - ${tier.enforcement_action}` : ''
+  const amount = Number(tier.fine_amount)
+  const fine = amount > 0 ? ` · ₱${amount.toLocaleString()}` : ' · No fine'
+  return `${tier.tier_name}${action}${fine}`
 }

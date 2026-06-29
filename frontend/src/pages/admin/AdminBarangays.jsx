@@ -83,17 +83,17 @@ export default function AdminBarangays() {
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                   <td style={{ padding: '0 12px', fontSize: 13, fontWeight: 500 }}>{b.barangay_name}</td>
                   <td style={{ padding: '0 12px' }}>
-                    <span className="mono" style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{b.barangay_number ?? '—'}</span>
+                    <span className="mono" style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>{b.barangay_number ?? '-'}</span>
                   </td>
                   <td style={{ padding: '0 12px', fontSize: 13, color: 'var(--color-text-secondary)' }}>
-                    {b.assigned_official ?? <span style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}>— (unassigned)</span>}
+                    {b.assigned_official ?? <span style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}>- (unassigned)</span>}
                   </td>
                   <td style={{ padding: '0 12px', fontSize: 13 }}>{b.streets_enrolled ?? 0}</td>
                   <td style={{ padding: '0 12px', fontSize: 13 }}>{b.reports_this_month ?? 0}</td>
                   <td style={{ padding: '0 12px' }}>
                     {b.is_active
-                      ? <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, color: '#059669', background: '#ECFDF5', textTransform: 'uppercase' }}>✓ Active</span>
-                      : <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, color: '#DC2626', background: '#FEF2F2', textTransform: 'uppercase' }}>✗ Inactive</span>
+                      ? <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, color: '#059669', background: '#ECFDF5', textTransform: 'uppercase' }}>Active</span>
+                      : <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, color: '#DC2626', background: '#FEF2F2', textTransform: 'uppercase' }}>Inactive</span>
                     }
                   </td>
                   <td style={{ padding: '0 12px' }}>

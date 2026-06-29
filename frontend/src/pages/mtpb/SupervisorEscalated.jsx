@@ -11,7 +11,7 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 const REFRESH_MS = 30000
 
 function Elapsed({ escalatedAt }) {
-  const [display, setDisplay] = useState('—')
+  const [display, setDisplay] = useState('-')
 
   useEffect(() => {
     if (!escalatedAt) return
@@ -151,13 +151,13 @@ export default function SupervisorEscalated() {
                 <tr key={row.report_id} style={{ borderBottom: '1px solid var(--color-border)', height: 48, borderLeft: '3px solid #DC2626' }}>
                   <td style={{ padding: '0 12px' }}><span className="mono" style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>RPT-{row.report_id}</span></td>
                   <td style={{ padding: '0 12px' }}><PlateBadge plate={row.plate_number} /></td>
-                  <td style={{ padding: '0 12px', fontSize: 13 }}>{row.street_name ?? '—'}</td>
+                  <td style={{ padding: '0 12px', fontSize: 13 }}>{row.street_name ?? '-'}</td>
                   <td style={{ padding: '0 12px' }}><PenaltyTierBadge tier_name={row.tier_name} /></td>
                   <td style={{ padding: '0 12px', fontSize: 12, color: 'var(--color-text-muted)' }}>
-                    {row.submitted_at ? new Date(row.submitted_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                    {row.submitted_at ? new Date(row.submitted_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
                   </td>
                   <td style={{ padding: '0 12px', fontSize: 12, color: 'var(--color-text-muted)' }}>
-                    {row.escalated_at ? new Date(row.escalated_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'}
+                    {row.escalated_at ? new Date(row.escalated_at).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'}
                   </td>
                   <td style={{ padding: '0 12px' }}><Elapsed escalatedAt={row.escalated_at} /></td>
                   <td style={{ padding: '0 12px' }}>
@@ -197,10 +197,10 @@ export default function SupervisorEscalated() {
                 </label>
                 <select value={selectedOfficer} onChange={e => setSelectedOfficer(e.target.value)}
                   style={{ width: '100%', padding: '10px 12px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-bg)', color: 'var(--color-text-primary)', marginBottom: 4 }}>
-                  <option value="">— Select officer —</option>
+                  <option value="">- Select officer -</option>
                   {officers.map(o => (
                     <option key={o.user_id} value={o.user_id}>
-                      {o.first_name} {o.last_name} — Badge #{o.badge_number ?? o.employee_id ?? '—'}
+                      {o.first_name} {o.last_name} - Badge #{o.badge_number ?? o.employee_id ?? '-'}
                     </option>
                   ))}
                 </select>

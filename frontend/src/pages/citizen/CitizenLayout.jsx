@@ -3,11 +3,11 @@ import { Outlet } from "react-router-dom"
 import BottomNav from "../../components/citizen/BottomNav"
 import { registerForPush } from "../../services/fcm"
 
-// Citizen app shell. Public — NO auth guard, NO redirect to login (citizens
+// Citizen app shell. Public - NO auth guard, NO redirect to login (citizens
 // report anonymously per the research paper, p.118).
 export default function CitizenLayout() {
   // Best-effort anonymous push registration (UC-03). No-ops unless Firebase is
-  // configured and the citizen grants permission (AF-1 — silent otherwise).
+  // configured and the citizen grants permission (AF-1 - silent otherwise).
   useEffect(() => { registerForPush() }, [])
 
   return (

@@ -10,6 +10,11 @@ import PenaltyTierBadge from '../../components/PenaltyTierBadge'
 import RepeatOffenderBadge from '../../components/RepeatOffenderBadge'
 import LoadingSpinner from '../../components/LoadingSpinner'
 
+// Enforcement actions by offense tier (migration 022). "Vehicle No Longer Present"
+// means nothing to enforce. Only the paperwork outcomes require a reference number.
+const RESOLUTION_OUTCOMES = ['Verbal Warning', 'Ticket Issued', 'Wheel Clamp', 'Vehicle Impounded', 'Vehicle No Longer Present']
+const TICKET_REQUIRED_OUTCOMES = ['Ticket Issued', 'Wheel Clamp', 'Vehicle Impounded']
+
 function SectionHeader({ children }) {
   return (
     <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12, marginTop: 20 }}>
@@ -64,7 +69,7 @@ export default function OfficerReportDetail() {
 
   const handleResolve = async () => {
     if (!resolveOutcome) { setTicketErr('Select a resolution outcome.'); return }
-    if ((resolveOutcome === 'Ticket Issued' || resolveOutcome === 'Vehicle Clamped') && !ticketRef.trim()) {
+    if (TICKET_REQUIRED_OUTCOMES.includes(resolveOutcome) && !ticketRef.trim()) {
       setTicketErr('Reference number is required.'); return
     }
     setTicketErr('')
@@ -104,11 +109,11 @@ export default function OfficerReportDetail() {
               <PlateBadge plate={report.vehicle?.plate_number} large />
               <PenaltyTierBadge tier_name={report.penalty_tier?.tier_name} />
             </div>
-            <KV label="Street">{report.street?.street_name ?? '—'}</KV>
-            <KV label="Violation">{report.violation_type ?? '—'}</KV>
-            <KV label="Submitted">{report.submitted_at ? new Date(report.submitted_at).toLocaleString('en-PH') : '—'}</KV>
-            <KV label="Penalty">PHP {report.penalty_tier?.fine_amount != null ? Number(report.penalty_tier.fine_amount).toLocaleString() : '—'}</KV>
-            <KV label="Reporter">{report.reporter?.anonymous_alias ?? '—'}</KV>
+            <KV label="Street">{report.street?.street_name ?? '-'}</KV>
+            <KV label="Violation">{report.violation_type ?? '-'}</KV>
+            <KV label="Submitted">{report.submitted_at ? new Date(report.submitted_at).toLocaleString('en-PH') : '-'}</KV>
+            <KV label="Penalty">PHP {report.penalty_tier?.fine_amount != null ? Number(report.penalty_tier.fine_amount).toLocaleString() : '-'}</KV>
+            <KV label="Reporter">{report.reporter?.anonymous_alias ?? '-'}</KV>
 
             {report.photo_url && (
               <>
@@ -139,9 +144,9 @@ export default function OfficerReportDetail() {
                 <tbody>
                   {history.map(h => (
                     <tr key={h.report_id} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                      <td style={{ padding: '6px 8px' }}>{h.barangay_name ?? '—'}</td>
-                      <td style={{ padding: '6px 8px' }}>{h.street_name ?? '—'}</td>
-                      <td style={{ padding: '6px 8px' }}>{h.penalty_tier?.tier_name ?? '—'}</td>
+                      <td style={{ padding: '6px 8px' }}>{h.barangay_name ?? '-'}</td>
+                      <td style={{ padding: '6px 8px' }}>{h.street_name ?? '-'}</td>
+                      <td style={{ padding: '6px 8px' }}>{h.penalty_tier?.tier_name ?? '-'}</td>
                       <td style={{ padding: '6px 8px' }}><StatusBadge status={h.status} /></td>
                     </tr>
                   ))}
@@ -156,17 +161,17 @@ export default function OfficerReportDetail() {
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
               {report.status === 'verified' && (
                 <button onClick={() => doAction('acknowledge')} disabled={actionLoading} style={actionBtn('#3B82F6')}>
-                  {actionLoading ? <LoadingSpinner size={13} color="#fff" /> : '✓ Acknowledge'}
+                  {actionLoading ? <LoadingSpinner size={13} color="#fff" /> : 'Acknowledge'}
                 </button>
               )}
               {report.status === 'acknowledged' && isMyReport && (
                 <button onClick={() => doAction('dispatch')} disabled={actionLoading} style={actionBtn('#D97706')}>
-                  {actionLoading ? <LoadingSpinner size={13} color="#fff" /> : '⇒ Dispatch'}
+                  {actionLoading ? <LoadingSpinner size={13} color="#fff" /> : 'Dispatch'}
                 </button>
               )}
               {report.status === 'dispatched' && isMyReport && (
                 <button onClick={() => setShowResolve(v => !v)} style={actionBtn('#10B981')}>
-                  ✓ Resolve
+                  Resolve
                 </button>
               )}
             </div>
@@ -174,7 +179,7 @@ export default function OfficerReportDetail() {
             {showResolve && (
               <div style={{ marginTop: 16 }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 12 }}>
-                  {['Ticket Issued', 'Vehicle Clamped', 'Vehicle No Longer Present'].map(opt => (
+                  {RESOLUTION_OUTCOMES.map(opt => (
                     <label key={opt} style={{
                       display: 'flex', alignItems: 'center', gap: 12, padding: '0 14px', height: 44,
                       border: `${resolveOutcome === opt ? 2 : 1}px solid ${resolveOutcome === opt ? 'var(--accent)' : 'var(--color-border)'}`,
@@ -185,10 +190,10 @@ export default function OfficerReportDetail() {
                     </label>
                   ))}
                 </div>
-                {(resolveOutcome === 'Ticket Issued' || resolveOutcome === 'Vehicle Clamped') && (
+                {TICKET_REQUIRED_OUTCOMES.includes(resolveOutcome) && (
                   <div style={{ marginBottom: 12 }}>
                     <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6 }}>
-                      Ticket / Clamp Reference No. *
+                      Reference No. *
                     </label>
                     <input type="text" value={ticketRef} onChange={e => setTicketRef(e.target.value)} placeholder="e.g. TKT-2025-0034"
                       style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: ticketErr ? '1.5px solid #EF4444' : '1px solid var(--color-border)', fontSize: 13, fontFamily: 'JetBrains Mono, monospace', background: 'var(--color-bg)', color: 'var(--color-text-primary)' }} />

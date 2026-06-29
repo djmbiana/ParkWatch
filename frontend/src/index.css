@@ -50,10 +50,14 @@ body {
   --color-escalated:    #DC2626;
   --color-escalated-bg: #FEF2F2;
 
-  /* Portal accent — default blue (barangay) */
-  --accent:       #2563EB;
-  --accent-hover: #1D4ED8;
-  --accent-soft:  #EFF6FF;
+  /* Brand accent - green, matching the favicon (#3da044). This is the base
+     brand used on shared surfaces (citizen app, landing, auth). Each staff
+     portal overrides --accent to a different SHADE of green (see .portal-*
+     below), so roles stay distinguishable while the whole product reads as one
+     connected green family. */
+  --accent:       #3DA044; /* brand green */
+  --accent-hover: #2F7D36;
+  --accent-soft:  #ECF6ED;
 
   /* Shadows */
   --shadow-sm: 0 1px 2px rgba(15,17,23,0.05);
@@ -75,9 +79,9 @@ body {
 
 /* Citizen mobile app tokens (scoped to the citizen web app) */
 .citizen-app {
-  --c-primary:    #1D4ED8;
-  --c-primary-dk: #1E3A8A;
-  --c-primary-lt: #EFF6FF;
+  --c-primary:    #3DA044; /* brand green, matches the global --accent */
+  --c-primary-dk: #2F7D36;
+  --c-primary-lt: #ECF6ED;
   --c-success:    #059669;
   --c-success-lt: #ECFDF5;
   --c-warning:    #D97706;
@@ -102,11 +106,15 @@ body {
 }
 .citizen-check-pop { animation: citizen-check-pop 300ms ease-out; }
 
-/* Portal accent overrides */
-.portal-barangay   { --accent: #2563EB; --accent-hover: #1D4ED8; --accent-soft: #EFF6FF; }
-.portal-mtpb       { --accent: #D97706; --accent-hover: #B45309; --accent-soft: #FFFBEB; }
-.portal-supervisor { --accent: #DC2626; --accent-hover: #B91C1C; --accent-soft: #FEF2F2; }
-.portal-admin      { --accent: #6366F1; --accent-hover: #4F46E5; --accent-soft: #EEF2FF; }
+/* Per-role accents - each portal gets a DIFFERENT SHADE OF GREEN so the role is
+   still signalled by colour, but everything stays in one connected green family
+   (rather than the old blue/amber/red/indigo that clashed with status colours).
+   Lightness roughly tracks seniority: Barangay (lightest) -> Supervisor (darkest),
+   with Admin shifted toward olive to set it apart. */
+.portal-barangay   { --accent: #43A047; --accent-hover: #357E38; --accent-soft: #ECF7ED; } /* fresh green */
+.portal-mtpb       { --accent: #2E7D32; --accent-hover: #246428; --accent-soft: #EAF4EB; } /* forest green */
+.portal-supervisor { --accent: #1B5E20; --accent-hover: #134618; --accent-soft: #E8F1E9; } /* deep pine */
+.portal-admin      { --accent: #6A8D34; --accent-hover: #54702A; --accent-soft: #F1F6E8; } /* olive green */
 
 /* Loading skeleton animation */
 @keyframes skeleton-pulse {

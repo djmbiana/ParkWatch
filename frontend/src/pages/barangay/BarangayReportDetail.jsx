@@ -172,7 +172,7 @@ export default function BarangayReportDetail() {
             <SectionHeader>Citizen Manual Input</SectionHeader>
             {report.manual_plate_input
               ? <PlateBadge plate={report.manual_plate_input} manual />
-              : <span style={{ fontSize: 13, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>N/A — OCR result accepted</span>
+              : <span style={{ fontSize: 13, color: 'var(--color-text-muted)', fontStyle: 'italic' }}>N/A - OCR result accepted</span>
             }
           </div>
         </div>
@@ -188,17 +188,17 @@ export default function BarangayReportDetail() {
             padding: 20,
           }}>
             <SectionHeader>Report Details</SectionHeader>
-            <KV label="Submitted">{report.submitted_at ? new Date(report.submitted_at).toLocaleString('en-PH') : '—'}</KV>
-            <KV label="Reporter">{report.reporter?.anonymous_alias ?? '—'}</KV>
-            <KV label="Street">{report.street?.street_name ?? '—'}</KV>
-            <KV label="Barangay">{report.street?.barangay_name ?? '—'}</KV>
-            <KV label="Violation">{report.violation_type ?? '—'}</KV>
+            <KV label="Submitted">{report.submitted_at ? new Date(report.submitted_at).toLocaleString('en-PH') : '-'}</KV>
+            <KV label="Reporter">{report.reporter?.anonymous_alias ?? '-'}</KV>
+            <KV label="Street">{report.street?.street_name ?? '-'}</KV>
+            <KV label="Barangay">{report.street?.barangay_name ?? '-'}</KV>
+            <KV label="Violation">{report.violation_type ?? '-'}</KV>
             <KV label="Penalty Tier">
               <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <PenaltyTierBadge tier_name={report.penalty_tier?.tier_name} />
                 {report.penalty_tier?.fine_amount != null && (
                   <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-                    — PHP {Number(report.penalty_tier.fine_amount).toLocaleString()}
+                    - PHP {Number(report.penalty_tier.fine_amount).toLocaleString()}
                   </span>
                 )}
               </span>
@@ -234,10 +234,10 @@ export default function BarangayReportDetail() {
                 <tbody>
                   {otherHistory.map(h => (
                     <tr key={h.report_id} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                      <td style={{ padding: '6px 8px' }}>{h.barangay_name ?? '—'}</td>
-                      <td style={{ padding: '6px 8px' }}>{h.street_name ?? '—'}</td>
-                      <td style={{ padding: '6px 8px' }}>{h.submitted_at ? new Date(h.submitted_at).toLocaleDateString('en-PH') : '—'}</td>
-                      <td style={{ padding: '6px 8px' }}>{h.penalty_tier?.tier_name ?? '—'}</td>
+                      <td style={{ padding: '6px 8px' }}>{h.barangay_name ?? '-'}</td>
+                      <td style={{ padding: '6px 8px' }}>{h.street_name ?? '-'}</td>
+                      <td style={{ padding: '6px 8px' }}>{h.submitted_at ? new Date(h.submitted_at).toLocaleDateString('en-PH') : '-'}</td>
+                      <td style={{ padding: '6px 8px' }}>{h.penalty_tier?.tier_name ?? '-'}</td>
                       <td style={{ padding: '6px 8px' }}><StatusBadge status={h.status} /></td>
                     </tr>
                   ))}

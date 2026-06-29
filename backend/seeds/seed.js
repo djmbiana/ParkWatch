@@ -59,6 +59,33 @@ const STREET_NAMES = [
   'Singalong Street',
   'General Luna Street',
 ];
+
+// Approximate Malate coordinates per street (mirrors migration 016), keyed by the
+// exact names above. Seeded so the supervisor violation heat map always has points
+// to plot — without these, STREETS.latitude/longitude stay NULL after a reseed and
+// the map renders empty.
+const STREET_COORDS = {
+  'Adriatico Street':               [14.5685, 120.9868],
+  'Remedios Street':                [14.5668, 120.9882],
+  'M.H. Del Pilar Street':          [14.5702, 120.9838],
+  'Mabini Street':                  [14.5692, 120.9853],
+  'J. Bocobo Street':               [14.5722, 120.9876],
+  'Nakpil Street':                  [14.5675, 120.9888],
+  'Orosa Street':                   [14.5746, 120.9866],
+  'Julio Nakpil Street':            [14.5676, 120.9890],
+  'Leveriza Street':                [14.5652, 120.9962],
+  'Pablo Ocampo Street':            [14.5612, 120.9932],
+  'Pedro Gil Street':               [14.5735, 120.9892],
+  'Taft Avenue':                    [14.5662, 120.9942],
+  'Vito Cruz Street':               [14.5606, 120.9926],
+  'UN Avenue':                      [14.5820, 120.9872],
+  'Kalaw Avenue':                   [14.5800, 120.9822],
+  'Roxas Boulevard (service road)': [14.5700, 120.9792],
+  'Agno Street':                    [14.5626, 120.9946],
+  'Dominga Street':                 [14.5636, 120.9952],
+  'Singalong Street':               [14.5602, 120.9986],
+  'General Luna Street':            [14.5758, 120.9852],
+};
 const STREETS_PER_BARANGAY = STREET_NAMES.length / 10; // 2 per barangay, 701–710
 
 // Active rules added for every street — the canonical 10 violation types
@@ -79,12 +106,15 @@ const VIOLATION_TYPES = [
 ];
 
 // Matched against VEHICLES.total_violations when a report is verified.
-// Fines align with MMDA MMTC 2023 (₱1000/₱2000/₱3000) per migration 020 —
-// keep these in sync so the seed never regresses the corrected amounts.
+// 4-tier escalating enforcement (migration 022). The offense number for a report
+// = the vehicle's confirmed-violation count + 1, matched against min/max_violations.
+//   1st — Verbal Warning (no fine)   2nd — Ticket (₱500)
+//   3rd — Wheel Clamp (₱1,000)       4th+ — Impound (₱2,000)
 const PENALTY_TIERS = [
-  { tier_name: '1st Offense',  min_violations: 0, max_violations: 1,    fine_amount: 1000.0, requires_clamping: false },
-  { tier_name: '2nd Offense',  min_violations: 2, max_violations: 2,    fine_amount: 2000.0, requires_clamping: false },
-  { tier_name: '3rd Offense+', min_violations: 3, max_violations: null, fine_amount: 3000.0, requires_clamping: true  },
+  { tier_name: '1st Offense', enforcement_action: 'Verbal Warning', min_violations: 0, max_violations: 1,    fine_amount: 0.0,    requires_clamping: false, requires_impound: false },
+  { tier_name: '2nd Offense', enforcement_action: 'Ticket',         min_violations: 2, max_violations: 2,    fine_amount: 500.0,  requires_clamping: false, requires_impound: false },
+  { tier_name: '3rd Offense', enforcement_action: 'Wheel Clamp',    min_violations: 3, max_violations: 3,    fine_amount: 1000.0, requires_clamping: true,  requires_impound: false },
+  { tier_name: '4th Offense', enforcement_action: 'Impound',        min_violations: 4, max_violations: null, fine_amount: 2000.0, requires_clamping: false, requires_impound: true  },
 ];
 
 // ⚠ DEVELOPMENT ONLY — remove these accounts before any production deploy.
@@ -134,10 +164,34 @@ async function seedStreets(connection, barangayIds) {
       [barangayId, STREET_NAMES[i]]
     );
   }
-  logger.info(`Streets seeded (${STREET_NAMES.length} rows across Barangays 701–710)`);
+
+  // Backfill coordinates so the violation heat map has points to plot. Runs every
+  // seed (idempotent UPDATE) so a reset never leaves streets without lat/lng.
+  let coordCount = 0;
+  for (const [name, [lat, lng]] of Object.entries(STREET_COORDS)) {
+    const [res] = await connection.execute(
+      'UPDATE STREETS SET latitude = ?, longitude = ? WHERE street_name = ?',
+      [lat, lng, name]
+    );
+    coordCount += res.affectedRows;
+  }
+  logger.info(`Streets seeded (${STREET_NAMES.length} rows across Barangays 701–710, ${coordCount} coordinates set)`);
 }
 
 async function seedParkingRules(connection) {
+  // Self-correcting: remove any rule whose violation_type isn't in the canonical
+  // list (mirrors migration 019). The docker init seed.sql ships older/incon-
+  // sistent names (e.g. "Blocking Driveway" vs "Blocking Driveway or Entrance"),
+  // so without this a fresh boot ends up with 11 distinct types instead of 10.
+  const placeholders = VIOLATION_TYPES.map(() => '?').join(', ');
+  const [pruned] = await connection.query(
+    `DELETE FROM PARKING_RULES WHERE violation_type NOT IN (${placeholders})`,
+    VIOLATION_TYPES
+  );
+  if (pruned.affectedRows > 0) {
+    logger.info(`Parking rules pruned (${pruned.affectedRows} non-canonical rows removed)`);
+  }
+
   // Set-based insert: every street × every violation type, skipping pairs
   // that already exist (PARKING_RULES has no unique key, so INSERT IGNORE
   // alone would duplicate rows on re-runs).
@@ -157,6 +211,18 @@ async function seedParkingRules(connection) {
 }
 
 async function seedPenaltyTiers(connection) {
+  // Self-correcting: drop any tier whose name isn't in the canonical 4 (e.g. the
+  // old '3rd Offense+' from the pre-4-tier structure) so re-runs converge cleanly.
+  const names = PENALTY_TIERS.map((t) => t.tier_name);
+  const placeholders = names.map(() => '?').join(', ');
+  const [pruned] = await connection.query(
+    `DELETE FROM PENALTY_TIERS WHERE tier_name NOT IN (${placeholders})`,
+    names
+  );
+  if (pruned.affectedRows > 0) {
+    logger.info(`Penalty tiers pruned (${pruned.affectedRows} non-canonical tiers removed)`);
+  }
+
   for (const tier of PENALTY_TIERS) {
     // PENALTY_TIERS has no unique key on tier_name, so upsert manually.
     const [[existing]] = await connection.execute(
@@ -167,16 +233,20 @@ async function seedPenaltyTiers(connection) {
     if (existing) {
       await connection.execute(
         `UPDATE PENALTY_TIERS
-            SET min_violations = ?, max_violations = ?, fine_amount = ?, requires_clamping = ?
+            SET enforcement_action = ?, min_violations = ?, max_violations = ?,
+                fine_amount = ?, requires_clamping = ?, requires_impound = ?
           WHERE tier_id = ?`,
-        [tier.min_violations, tier.max_violations, tier.fine_amount, tier.requires_clamping, existing.tier_id]
+        [tier.enforcement_action, tier.min_violations, tier.max_violations,
+         tier.fine_amount, tier.requires_clamping, tier.requires_impound, existing.tier_id]
       );
     } else {
       await connection.execute(
         `INSERT INTO PENALTY_TIERS
-           (tier_name, min_violations, max_violations, fine_amount, requires_clamping)
-         VALUES (?, ?, ?, ?, ?)`,
-        [tier.tier_name, tier.min_violations, tier.max_violations, tier.fine_amount, tier.requires_clamping]
+           (tier_name, enforcement_action, min_violations, max_violations,
+            fine_amount, requires_clamping, requires_impound)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [tier.tier_name, tier.enforcement_action, tier.min_violations, tier.max_violations,
+         tier.fine_amount, tier.requires_clamping, tier.requires_impound]
       );
     }
   }
@@ -229,6 +299,36 @@ async function seedDeactivatedUser(connection) {
   logger.info('Deactivated test account seeded (deactivated@test.com, is_active = FALSE)');
 }
 
+// One barangay official PER participating barangay (701–710, the barangays that
+// actually have streets seeded). Without this there is a single official scoped
+// to one barangay, so a citizen report on any other barangay's street has no one
+// who can verify it (FR-12 scoping) and the demo stalls. Emails are
+// barangay701@test.com … barangay710@test.com, all password Test1234!.
+// barangay@test.com (in TEST_USERS) remains as the legacy alias for Barangay 701.
+async function seedBarangayOfficials(connection, barangayIds) {
+  const hash = await bcrypt.hash(TEST_PASSWORD, SALT_ROUNDS);
+  let count = 0;
+  for (let n = 701; n <= 710; n++) {
+    const barangayId = barangayIds.get(`Barangay ${n}`);
+    if (!barangayId) continue; // barangay not seeded — skip rather than orphan
+    await connection.execute(
+      `INSERT INTO USERS
+         (first_name, last_name, email, password_hash, role, anonymous_alias,
+          barangay_id, is_verified, is_active)
+       VALUES (?, ?, ?, ?, 'brgy_official', ?, ?, FALSE, TRUE)
+       ON DUPLICATE KEY UPDATE
+         password_hash = VALUES(password_hash),
+         role          = VALUES(role),
+         barangay_id   = VALUES(barangay_id),
+         is_verified   = FALSE,
+         is_active     = TRUE`,
+      [`Brgy ${n}`, 'Official', `barangay${n}@test.com`, hash, `Official_brgy${n}`, barangayId]
+    );
+    count++;
+  }
+  logger.info(`Barangay officials seeded (${count} rows, barangay701–710@test.com)`);
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -245,14 +345,16 @@ async function seed() {
     await seedPenaltyTiers(connection);
     await seedTestUsers(connection, barangayIds);
     await seedDeactivatedUser(connection);
+    await seedBarangayOfficials(connection, barangayIds);
 
     logger.info('─────────────────────────────────────────');
     logger.info(`Seed complete. Test accounts use password: ${TEST_PASSWORD}`);
-    logger.info('  citizen@test.com      → citizen');
-    logger.info('  barangay@test.com     → brgy_official (Barangay 701)');
-    logger.info('  officer@test.com      → mtpb_officer');
-    logger.info('  supervisor@test.com   → mtpb_supervisor');
-    logger.info('  admin@test.com        → admin');
+    logger.info('  citizen@test.com           → citizen');
+    logger.info('  barangay@test.com          → brgy_official (Barangay 701)');
+    logger.info('  barangay701–710@test.com   → brgy_official (one per barangay 701–710)');
+    logger.info('  officer@test.com           → mtpb_officer');
+    logger.info('  supervisor@test.com        → mtpb_supervisor');
+    logger.info('  admin@test.com             → admin');
     logger.info('⚠ Test accounts are for development only — remove before production.');
     logger.info('─────────────────────────────────────────');
   } catch (err) {

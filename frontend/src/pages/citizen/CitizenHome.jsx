@@ -75,7 +75,7 @@ export default function CitizenHome() {
                 Help keep Malate's streets clear.
               </p>
               <p style={{ fontSize: 13, color: "var(--c-muted)", marginTop: 4 }}>
-                Report illegal parking anonymously — no account needed.
+                Report illegal parking anonymously - no account needed.
               </p>
             </>
           )}

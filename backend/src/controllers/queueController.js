@@ -312,17 +312,23 @@ const dispatch = async (req, res, next) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/reports/:reportId/resolve  { resolution_outcome, ticket_reference? }
 // ---------------------------------------------------------------------------
-// Outcomes that confirm a real violation and therefore count toward the
-// vehicle's offense history (FR-13, paper p.54). "Vehicle No Longer Present"
-// (and any other outcome) does NOT increment the counter.
-const COUNTABLE_OUTCOMES = ['Ticket Issued', 'Vehicle Clamped'];
+// Resolution outcomes that CONFIRM a real violation and therefore advance the
+// vehicle's offense count (FR-13). Every enforcement action counts — including a
+// 1st-offense Verbal Warning — so the vehicle progresses through the tiers. Only
+// "Vehicle No Longer Present" (the officer found nothing to enforce) does not.
+// 'Vehicle Clamped' is kept as a legacy alias for 'Wheel Clamp'.
+const COUNTABLE_OUTCOMES = ['Verbal Warning', 'Ticket Issued', 'Wheel Clamp', 'Vehicle Clamped', 'Vehicle Impounded'];
+
+// Outcomes that issue physical paperwork and therefore require a ticket/reference
+// number. A Verbal Warning counts as an offense but needs no paperwork.
+const TICKET_REQUIRED_OUTCOMES = ['Ticket Issued', 'Wheel Clamp', 'Vehicle Clamped', 'Vehicle Impounded'];
 
 const resolve = async (req, res, next) => {
   const reportId = parseInt(req.params.reportId, 10);
   const { resolution_outcome, ticket_reference } = req.body;
   if (!resolution_outcome) return fail(res, 400, 'resolution_outcome is required.');
-  // UC-08 Step 3 (paper p.87): a ticketed outcome requires a ticket reference.
-  if (COUNTABLE_OUTCOMES.includes(resolution_outcome)
+  // UC-08 Step 3 (paper p.87): a paperwork outcome requires a ticket reference.
+  if (TICKET_REQUIRED_OUTCOMES.includes(resolution_outcome)
       && (!ticket_reference || !String(ticket_reference).trim())) {
     return fail(res, 422, 'Ticket reference is required.');
   }
@@ -417,7 +423,7 @@ const analyticsSummary = async (req, res, next) => {
          SUM(CASE WHEN r.status IN ('acknowledged','dispatched','resolved') THEN 1 ELSE 0 END) AS total_acknowledged,
          SUM(CASE WHEN r.status = 'rejected' THEN 1 ELSE 0 END) AS total_rejected,
          SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) AS pending_now,
-         SUM(CASE WHEN r.is_escalated = 1 OR r.status = 'escalated' THEN 1 ELSE 0 END) AS escalated_now,
+         SUM(CASE WHEN r.status = 'escalated' THEN 1 ELSE 0 END) AS escalated_now,
          SUM(CASE WHEN r.status = 'resolved' AND DATE(r.resolved_at) = '${today}' THEN 1 ELSE 0 END) AS resolved_today,
          COALESCE(AVG(CASE WHEN r.verified_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.verified_at) END), 0) AS avg_verify_min,
          COALESCE(AVG(CASE WHEN r.acknowledged_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.verified_at, r.acknowledged_at) END), 0) AS avg_mtpb_response_min,
@@ -432,12 +438,31 @@ const analyticsSummary = async (req, res, next) => {
     const resolved = Number(s.reports_resolved ?? 0);
     const rate = total > 0 ? Math.round((resolved / total) * 100) : 0;
 
+    // A repeat offender is a VEHICLE with >= 2 confirmed violations (matches the
+    // repeat-offenders table). Counting distinct reported vehicles was wrong —
+    // it flagged every first-time vehicle as a "repeat offender".
     const [[roStats]] = await pool.execute(
-      `SELECT COUNT(DISTINCT vehicle_id) AS total_repeat_offenders FROM VIOLATION_REPORTS r WHERE r.status != 'rejected'`
+      `SELECT
+         COUNT(*) AS total_repeat_offenders,
+         SUM(CASE WHEN v.vehicle_id IN (
+               SELECT vr.vehicle_id FROM VIOLATION_REPORTS vr
+                WHERE YEAR(vr.submitted_at) = YEAR(CURDATE())
+                  AND MONTH(vr.submitted_at) = MONTH(CURDATE())
+             ) THEN 1 ELSE 0 END) AS repeat_this_month
+       FROM VEHICLES v
+       WHERE v.total_violations >= 2`
     );
 
+    // Total fines = sum of the tier fine ONLY for reports that actually issued a
+    // fine (a paperwork outcome). A report resolved as "Vehicle No Longer Present"
+    // keeps the tier assigned at submission but no fine was issued, so it must not
+    // be counted; a Verbal Warning has a 0 fine.
     const [[fineStats]] = await pool.execute(
-      `SELECT COALESCE(SUM(t.fine_amount), 0) AS total_fines FROM VIOLATION_REPORTS r LEFT JOIN PENALTY_TIERS t ON t.tier_id = r.penalty_tier_id WHERE r.status = 'resolved'`
+      `SELECT COALESCE(SUM(t.fine_amount), 0) AS total_fines
+         FROM VIOLATION_REPORTS r
+         JOIN PENALTY_TIERS t ON t.tier_id = r.penalty_tier_id
+        WHERE r.status = 'resolved'
+          AND r.resolution_outcome IN ('Ticket Issued','Wheel Clamp','Vehicle Clamped','Vehicle Impounded')`
     );
 
     return res.json({ success: true, message: 'Success', data: {
@@ -452,6 +477,7 @@ const analyticsSummary = async (req, res, next) => {
       avg_mtpb_response_min: Math.round(Number(s.avg_mtpb_response_min ?? 0)),
       avg_escalation_min: Math.round(Number(s.avg_escalation_min ?? 0)),
       total_repeat_offenders: Number(roStats.total_repeat_offenders ?? 0),
+      repeat_this_month: Number(roStats.repeat_this_month ?? 0),
       total_fines_issued: Number(fineStats.total_fines ?? 0),
       // FIX 7 — paper/audit field names (additive).
       total_submitted: total,
@@ -563,7 +589,7 @@ const supervisorQueue = async (req, res, next) => {
          r.escalation_reason,
          TIMESTAMPDIFF(SECOND, r.escalated_at, NOW()) AS seconds_since_escalation,`,
       )}
-       WHERE r.is_escalated = TRUE
+       WHERE r.status = 'escalated'
        ORDER BY r.escalated_at ASC`
     );
 
@@ -610,7 +636,7 @@ const supervisorResolve = async (req, res, next) => {
   const reportId = parseInt(req.params.reportId, 10);
   const { resolution_outcome, ticket_reference } = req.body;
   if (!resolution_outcome) return fail(res, 400, 'resolution_outcome is required.');
-  if (COUNTABLE_OUTCOMES.includes(resolution_outcome)
+  if (TICKET_REQUIRED_OUTCOMES.includes(resolution_outcome)
       && (!ticket_reference || !String(ticket_reference).trim())) {
     return fail(res, 422, 'Ticket reference is required.');
   }

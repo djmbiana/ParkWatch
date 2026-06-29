@@ -9,13 +9,13 @@ import PlateBadge from '../../components/PlateBadge'
 const REFRESH_MS = 30000
 
 function fmt(dt) {
-  if (!dt) return '—'
+  if (!dt) return '-'
   return new Date(dt).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })
 }
 
 function OcrCell({ score, manual }) {
   if (manual) return <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Manual</span>
-  if (score == null) return <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>—</span>
+  if (score == null) return <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>-</span>
   const color = score >= 90 ? '#10B981' : score >= 70 ? '#F59E0B' : '#EF4444'
   return <span style={{ fontSize: 12, fontWeight: 600, color }}>{score.toFixed(0)}%</span>
 }
@@ -75,7 +75,7 @@ export default function BarangayQueue() {
     { key: 'street_name', label: 'Street' },
     {
       key: 'barangay_name', label: 'Barangay',
-      render: (v) => <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{v ?? '—'}</span>,
+      render: (v) => <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{v ?? '-'}</span>,
     },
     { key: 'violation_type', label: 'Violation Type' },
     {

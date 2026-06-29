@@ -3,7 +3,7 @@ import { citizen } from "./api"
 const TOKEN_KEY = "parkwatch_fcm_token"
 
 // Reads Firebase web config from Vite env. Returns null unless every field
-// (including the VAPID key) is present — i.e. the feature is opt-in and stays
+// (including the VAPID key) is present - i.e. the feature is opt-in and stays
 // disabled until the project is configured.
 function readConfig() {
   const env = import.meta.env
@@ -22,7 +22,7 @@ function readConfig() {
 // Best-effort anonymous FCM registration (UC-03). Silently no-ops when:
 //   - Firebase env config is absent (feature disabled),
 //   - the browser lacks support / service workers,
-//   - the citizen denies notifications (UC-03 AF-1 — app continues normally).
+//   - the citizen denies notifications (UC-03 AF-1 - app continues normally).
 // The firebase SDK is loaded via dynamic import, so it becomes a lazy chunk
 // that is only fetched once we pass the config + permission checks.
 export async function registerForPush() {

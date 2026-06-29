@@ -4,11 +4,12 @@ import { useEffect } from "react"
 import { useToast } from "./components/ToastContext"
 import { setApiHandlers } from "./services/api"
 
+import Landing from "./pages/Landing"
 import Login from "./pages/Login"
 import Register from "./pages/Register"
 import RoleRoute from "./components/RoleRoute"
 
-// Citizen app (public, anonymous — no auth per research paper p.118)
+// Citizen app (public, anonymous - no auth per research paper p.118)
 import CitizenLayout from "./pages/citizen/CitizenLayout"
 import CitizenHome from "./pages/citizen/CitizenHome"
 import ReportWizard from "./pages/citizen/ReportWizard"
@@ -62,7 +63,7 @@ export default function App() {
         <Route path="/login"    element={<Login />} />
         <Route path="/register" element={<Register />} />
 
-        {/* Citizen — public, no auth guard (anonymous reporting) */}
+        {/* Citizen - public, no auth guard (anonymous reporting) */}
         <Route path="/citizen" element={<CitizenLayout />}>
           <Route index               element={<CitizenHome />} />
           <Route path="report"        element={<ReportWizard />} />
@@ -119,8 +120,8 @@ export default function App() {
         </Route>
 
         {/* Fallback */}
-        <Route path="/"  element={<Navigate to="/login" replace />} />
-        <Route path="*"  element={<Navigate to="/login" replace />} />
+        <Route path="/"  element={<Landing />} />
+        <Route path="*"  element={<Navigate to="/" replace />} />
       </Routes>
     </>
   )

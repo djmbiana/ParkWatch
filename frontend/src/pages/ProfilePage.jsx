@@ -85,7 +85,7 @@ export default function ProfilePage() {
         </div>
 
         <div style={{ fontSize: 13, color: 'var(--color-text-secondary)', marginBottom: 20 }}>
-          <strong>Email:</strong> {user?.email ?? '—'}
+          <strong>Email:</strong> {user?.email ?? '-'}
         </div>
 
         <div style={{ display: 'flex', gap: 12 }}>

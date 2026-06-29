@@ -1,5 +1,5 @@
 export default function PenaltyTierBadge({ tier_name }) {
-  if (!tier_name) return <span style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>—</span>
+  if (!tier_name) return <span style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>-</span>
 
   const lower = tier_name.toLowerCase()
   let color, bg, bold

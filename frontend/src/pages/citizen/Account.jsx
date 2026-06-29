@@ -31,7 +31,7 @@ export default function Account() {
           <p style={{ fontSize: 20, fontWeight: 700, color: "var(--c-text)", marginTop: 4 }}>{alias || "Not generated yet"}</p>
           <p style={{ fontSize: 12, color: "var(--c-muted)", marginTop: 6 }}>
             {alias
-              ? "Enforcement officers only ever see this ID — never your name or device."
+              ? "Enforcement officers only ever see this ID - never your name or device."
               : "You'll get an anonymous ID after your first report."}
           </p>
         </div>
@@ -40,7 +40,7 @@ export default function Account() {
         <div style={{ background: "var(--c-primary-lt)", borderRadius: 12, padding: 16, marginTop: 12 }}>
           <p style={{ fontSize: 14, fontWeight: 600, color: "var(--c-primary)" }}>No account needed</p>
           <p style={{ fontSize: 13, color: "var(--c-primary)", marginTop: 4 }}>
-            ParkWatch keeps you anonymous — there's no login. Your {reportCount} report{reportCount === 1 ? "" : "s"} {reportCount === 1 ? "is" : "are"} tracked only on this device.
+            ParkWatch keeps you anonymous - there's no login. Your {reportCount} report{reportCount === 1 ? "" : "s"} {reportCount === 1 ? "is" : "are"} tracked only on this device.
           </p>
         </div>
 

@@ -16,7 +16,7 @@ export default function StatCard({ value, label, color }) {
         lineHeight: 1.1,
         marginBottom: 6,
       }}>
-        {value ?? '—'}
+        {value ?? '-'}
       </div>
       <div style={{
         fontSize: 12,

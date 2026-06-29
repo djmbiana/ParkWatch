@@ -16,7 +16,7 @@ function accentFor(status) {
 }
 
 export default function ReportCard({ report, onClick }) {
-  const streetName = report.street?.street_name ?? report.street_name ?? "—"
+  const streetName = report.street?.street_name ?? report.street_name ?? "-"
 
   return (
     <div
@@ -59,7 +59,7 @@ export default function ReportCard({ report, onClick }) {
       </p>
       <p style={{ fontSize: 13, color: "var(--c-muted)" }}>{streetName}</p>
       <p style={{ fontSize: 13, color: "var(--c-muted)", marginTop: 2 }}>
-        {formatDateTime(report.submitted_at) ?? "—"}
+        {formatDateTime(report.submitted_at) ?? "-"}
       </p>
     </div>
   )

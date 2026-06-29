@@ -55,7 +55,7 @@ export default function SupervisorOfficers() {
                 <td style={{ padding: '0 12px', fontSize: 13, fontWeight: 500 }}>{o.first_name} {o.last_name}</td>
                 <td style={{ padding: '0 12px' }}>
                   <span className="mono" style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-                    #{o.badge_number ?? o.employee_id ?? '—'}
+                    #{o.badge_number ?? o.employee_id ?? '-'}
                   </span>
                 </td>
                 <td style={{ padding: '0 12px', fontSize: 13, color: 'var(--color-text-secondary)' }}>{o.email}</td>

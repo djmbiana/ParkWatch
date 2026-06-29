@@ -11,6 +11,30 @@ import { getToken, loginAs } from '../helpers/auth';
  * barangay official and an MTPB officer see the same complete history.
  */
 test.describe('SO3 — Cross-Barangay Violation History', () => {
+  // Self-seed: ensure ABC 1234 has reports in at least two different barangays so
+  // the cross-barangay assertions have data regardless of how the DB was seeded
+  // or reset. Idempotent — a duplicate within the dedup window just returns 409.
+  test.beforeAll(async () => {
+    const ctx = await request.newContext();
+    const PHOTO = 'https://storage.googleapis.com/parkwatch-evidence-capstone/photos/so3-seed.jpg';
+    const streetsRes = await ctx.get(`${API_URL}/api/streets`);
+    const streets = (await streetsRes.json()).data ?? [];
+    const pickedByBarangay = new Map<string, number>();
+    for (const s of streets) {
+      const key = String(s.barangay_name ?? s.barangay_id ?? s.street_id);
+      if (!pickedByBarangay.has(key)) pickedByBarangay.set(key, s.street_id);
+      if (pickedByBarangay.size >= 2) break;
+    }
+    for (const street_id of pickedByBarangay.values()) {
+      await ctx
+        .post(`${API_URL}/api/reports`, {
+          data: { photo_url: PHOTO, street_id, violation_type: 'Double Parking', plate: 'ABC 1234' },
+        })
+        .catch(() => {}); // 409 (already reported here recently) is fine
+    }
+    await ctx.dispose();
+  });
+
   test('TC-SO3-01: Plate history returns violations from ALL barangays', async () => {
     const token = await getToken('officer');
     const ctx = await request.newContext();
