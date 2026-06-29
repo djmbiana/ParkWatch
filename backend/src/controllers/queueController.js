@@ -156,8 +156,9 @@ const barangayStats = async (req, res, next) => {
 // ---------------------------------------------------------------------------
 // PATCH /api/reports/:reportId/verify   { action: 'approve'|'reject', rejection_reason? }
 // ---------------------------------------------------------------------------
-// Philippine plate format — private "ABC 1234" or motorcycle "ABC 12-3456".
-const PLATE_RE = /^[A-Z]{3} \d{4}$|^[A-Z]{3} \d{2}-\d{4}$/;
+// Philippine plate format — current "ABC 1234", legacy "ABC 123", or
+// motorcycle "ABC 12-3456". Mirrors utils/plateValidator.js PLATE_FORMAT.
+const PLATE_RE = /^[A-Z]{3} \d{4}$|^[A-Z]{3} \d{3}$|^[A-Z]{3} \d{2}-\d{4}$/;
 const RESPONSE_WINDOW_MIN = () =>
   parseInt(process.env.MTPB_RESPONSE_WINDOW_MINUTES, 10)
   || parseInt(process.env.MTPB_RESPONSE_TIMER_MINUTES, 10)

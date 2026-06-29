@@ -49,6 +49,8 @@ describe('plateValidator', () => {
     ['abc 1234', 'ABC 1234'],
     ['  ABC   1234  ', 'ABC 1234'],
     ['ABC1234', 'ABC 1234'],          // missing space inserted
+    ['abc 123', 'ABC 123'],           // legacy 3+3 plate (pre-2014 series)
+    ['PAQ132', 'PAQ 132'],            // legacy, missing space inserted
     ['abc 12 - 3456', 'ABC 12-3456'], // spaces around hyphen removed
     ['ABC12-3456', 'ABC 12-3456'],
   ])('normalizes %j to %j (valid)', (input, expected) => {
@@ -57,7 +59,7 @@ describe('plateValidator', () => {
     expect(isValidPlate(normalized)).toBe(true);
   });
 
-  it.each(['AB 1234', 'ABCD 1234', 'ABC 123', 'ABC 12345', '1234 ABC', '', '   '])(
+  it.each(['AB 1234', 'ABCD 1234', 'ABC 12', 'ABC 12345', '1234 ABC', '', '   '])(
     'rejects %j',
     (input) => {
       expect(isValidPlate(normalizePlate(input))).toBe(false);

@@ -312,7 +312,7 @@ export default function ReportWizard() {
                 }}
               />
               {plate && !plateValid && (
-                <p style={{ fontSize: 12, color: "var(--c-danger)", marginTop: 6 }}>Invalid format. Use ABC 1234 (private) or ABC 12-3456 (motorcycle).</p>
+                <p style={{ fontSize: 12, color: "var(--c-danger)", marginTop: 6 }}>Invalid format. Use ABC 1234 or ABC 123 (private) or ABC 12-3456 (motorcycle).</p>
               )}
               <p style={{ fontSize: 13, color: "var(--c-muted)", marginTop: 6 }}>
                 {ocrConfidence != null
@@ -321,7 +321,7 @@ export default function ReportWizard() {
                     ? "Double-check the reading above and fix it if needed."
                     : "Couldn't read the plate automatically — please type it in."}
               </p>
-              <p style={{ fontSize: 12, color: "var(--c-muted)", marginTop: 4 }}>Private: ABC 1234 · Motorcycle: ABC 12-3456</p>
+              <p style={{ fontSize: 12, color: "var(--c-muted)", marginTop: 4 }}>Private: ABC 1234 or ABC 123 · Motorcycle: ABC 12-3456</p>
             </div>
 
             {/* Street */}

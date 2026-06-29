@@ -11,8 +11,9 @@ export function formatDateTime(value) {
   return `${date} · ${time}`
 }
 
-// Philippine plate format: private "ABC 1234", motorcycle "ABC 12-3456".
-export const PLATE_RE = /^[A-Z]{3} \d{4}$|^[A-Z]{3} \d{2}-\d{4}$/
+// Philippine plate format: current "ABC 1234", legacy "ABC 123" (pre-2014
+// series, still on the road), motorcycle "ABC 12-3456".
+export const PLATE_RE = /^[A-Z]{3} \d{4}$|^[A-Z]{3} \d{3}$|^[A-Z]{3} \d{2}-\d{4}$/
 
 export function isValidPlate(value) {
   return PLATE_RE.test((value ?? '').trim().toUpperCase())
