@@ -111,6 +111,14 @@ function Login() {
             </button>
           </form>
 
+          <div className="mt-6 rounded-xl border px-4 py-3" style={{ borderColor: "#CDE9D2", background: "#F1F8F2" }}>
+            <p className="text-xs leading-relaxed" style={{ color: "#2F7D36" }}>
+              <span className="font-semibold">No account yet?</span> Accounts are created by your
+              team's supervisor or manager (barangay captain, MTPB supervisor, etc.). Please follow
+              up with them to have your account set up.
+            </p>
+          </div>
+
           <p className="text-center text-xs text-gray-400 mt-8">
             © 2026 ParkWatch. All rights reserved.
           </p>

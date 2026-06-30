@@ -157,17 +157,6 @@ export default function AdminUsers() {
     setShowEdit(u)
   }
 
-  const FormField = ({ label, name, type = 'text', required }) => (
-    <div style={{ marginBottom: 14 }}>
-      <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>
-        {label}{required && ' *'}
-      </label>
-      <input type={type} value={form[name]} onChange={e => { setForm(p => ({ ...p, [name]: e.target.value })); setFormErr(p => ({ ...p, [name]: '' })) }}
-        style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: `1px solid ${formErr[name] ? '#EF4444' : 'var(--color-border)'}`, fontSize: 13, background: 'var(--color-bg)', color: 'var(--color-text-primary)' }} />
-      {formErr[name] && <div style={{ fontSize: 11, color: '#EF4444', marginTop: 3 }}>{formErr[name]}</div>}
-    </div>
-  )
-
   return (
     <div>
       <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
@@ -251,10 +240,10 @@ export default function AdminUsers() {
             {!tempPassword ? (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-                  <FormField label="First Name" name="first_name" required />
-                  <FormField label="Last Name" name="last_name" required />
+                  <FormField label="First Name" name="first_name" required form={form} setForm={setForm} formErr={formErr} setFormErr={setFormErr} />
+                  <FormField label="Last Name" name="last_name" required form={form} setForm={setForm} formErr={formErr} setFormErr={setFormErr} />
                 </div>
-                <FormField label="Email" name="email" type="email" required />
+                <FormField label="Email" name="email" type="email" required form={form} setForm={setForm} formErr={formErr} setFormErr={setFormErr} />
                 <div style={{ marginBottom: 14 }}>
                   <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>Role *</label>
                   <select value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))}
@@ -315,10 +304,10 @@ export default function AdminUsers() {
           <div className="modal-animate" style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', width: 500, maxWidth: '90vw', padding: 28, boxShadow: 'var(--shadow-lg)', maxHeight: '90vh', overflowY: 'auto' }}>
             <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 20 }}>Edit User</h2>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 16px' }}>
-              <FormField label="First Name" name="first_name" required />
-              <FormField label="Last Name" name="last_name" required />
+              <FormField label="First Name" name="first_name" required form={form} setForm={setForm} formErr={formErr} setFormErr={setFormErr} />
+              <FormField label="Last Name" name="last_name" required form={form} setForm={setForm} formErr={formErr} setFormErr={setFormErr} />
             </div>
-            <FormField label="Email" name="email" type="email" required />
+            <FormField label="Email" name="email" type="email" required form={form} setForm={setForm} formErr={formErr} setFormErr={setFormErr} />
             {form.role === 'brgy_official' && (
               <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>Barangay</label>
@@ -350,6 +339,31 @@ export default function AdminUsers() {
           onCancel={() => setDeactivateTarget(null)}
         />
       )}
+    </div>
+  )
+}
+
+// Defined at module scope (NOT inside AdminUsers) so its component identity is
+// stable across re-renders. A component defined inside the parent is recreated
+// on every keystroke, which remounts the <input> and drops focus after each
+// character typed — the cause of the "one character at a time" bug.
+function FormField({ label, name, type = 'text', required, form, setForm, formErr, setFormErr }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>
+        {label}{required && ' *'}
+      </label>
+      <input
+        type={type}
+        value={form[name]}
+        onChange={e => {
+          const { value } = e.target
+          setForm(p => ({ ...p, [name]: value }))
+          setFormErr(p => ({ ...p, [name]: '' }))
+        }}
+        style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: `1px solid ${formErr[name] ? '#EF4444' : 'var(--color-border)'}`, fontSize: 13, background: 'var(--color-bg)', color: 'var(--color-text-primary)' }}
+      />
+      {formErr[name] && <div style={{ fontSize: 11, color: '#EF4444', marginTop: 3 }}>{formErr[name]}</div>}
     </div>
   )
 }
