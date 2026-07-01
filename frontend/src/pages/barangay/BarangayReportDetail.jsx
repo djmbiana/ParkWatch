@@ -151,6 +151,18 @@ export default function BarangayReportDetail() {
               }
             </div>
 
+            {report.additional_photos?.length > 0 && (
+              <>
+                <SectionHeader>Additional Photos ({report.additional_photos.length})</SectionHeader>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
+                  {report.additional_photos.map((url, i) => (
+                    <img key={i} src={url} alt={`Additional evidence ${i + 1}`} onClick={() => setLightbox(url)}
+                      style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--color-border)', cursor: 'pointer' }} />
+                  ))}
+                </div>
+              </>
+            )}
+
             <SectionHeader>OCR Extracted Plate</SectionHeader>
             <div style={{ marginBottom: 6 }}>
               <PlateBadge plate={report.ocr_extracted_plate} confidence={report.ocr_confidence_score} large />
@@ -330,7 +342,7 @@ export default function BarangayReportDetail() {
       </div>
 
       {/* Lightbox */}
-      {lightbox && report.photo_url && (
+      {lightbox && (
         <div
           onClick={() => setLightbox(false)}
           style={{
@@ -340,7 +352,7 @@ export default function BarangayReportDetail() {
           }}
         >
           <img
-            src={report.photo_url}
+            src={typeof lightbox === 'string' ? lightbox : report.photo_url}
             alt="Evidence full"
             style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, objectFit: 'contain' }}
             onClick={e => e.stopPropagation()}

@@ -123,6 +123,17 @@ export default function OfficerReportDetail() {
                 </div>
               </>
             )}
+            {report.additional_photos?.length > 0 && (
+              <>
+                <SectionHeader>Additional Photos ({report.additional_photos.length})</SectionHeader>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {report.additional_photos.map((url, i) => (
+                    <img key={i} src={url} alt={`Additional evidence ${i + 1}`} onClick={() => setLightbox(url)}
+                      style={{ width: 88, height: 88, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--color-border)', cursor: 'pointer' }} />
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -209,9 +220,9 @@ export default function OfficerReportDetail() {
         </div>
       </div>
 
-      {lightbox && report.photo_url && (
+      {lightbox && (
         <div onClick={() => setLightbox(false)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, cursor: 'zoom-out' }}>
-          <img src={report.photo_url} alt="Evidence full" style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, objectFit: 'contain' }} onClick={e => e.stopPropagation()} />
+          <img src={typeof lightbox === 'string' ? lightbox : report.photo_url} alt="Evidence full" style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, objectFit: 'contain' }} onClick={e => e.stopPropagation()} />
         </div>
       )}
     </div>

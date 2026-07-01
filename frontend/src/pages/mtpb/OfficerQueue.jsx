@@ -55,12 +55,6 @@ export default function OfficerQueue() {
   const [tab, setTab] = useState('all')
   const [secAgo, setSecAgo] = useState(0)
   const lastFetch = useRef(Date.now())
-  const [resolveModal, setResolveModal] = useState(null)
-  const [resolveOutcome, setResolveOutcome] = useState('')
-  const [ticketRef, setTicketRef] = useState('')
-  const [ticketErr, setTicketErr] = useState('')
-  const [resolveLoading, setResolveLoading] = useState(false)
-  const [actionLoading, setActionLoading] = useState({})
 
   useEffect(() => { setPageTitle('Enforcement Queue') }, [setPageTitle])
 
@@ -97,100 +91,31 @@ export default function OfficerQueue() {
   if (tab === 'repeat') filtered = data.filter(r => r.is_repeat_offender)
   if (tab === 'escalated') filtered = data.filter(r => r.is_escalated || r.status === 'escalated')
 
-  const setLoading1 = (id, v) => setActionLoading(p => ({ ...p, [id]: v }))
-
-  const handleAck = async (row) => {
-    setLoading1(row.report_id, 'ack')
-    try {
-      await reports.acknowledge(row.report_id)
-      toast('Report acknowledged.', 'success')
-      fetchData()
-    } catch (e) { toast(e.message, 'error') }
-    finally { setLoading1(row.report_id, false) }
-  }
-
-  const handleDispatch = async (row) => {
-    setLoading1(row.report_id, 'dispatch')
-    try {
-      await reports.dispatch(row.report_id)
-      toast('Report dispatched.', 'success')
-      fetchData()
-    } catch (e) { toast(e.message, 'error') }
-    finally { setLoading1(row.report_id, false) }
-  }
-
-  const handleResolveConfirm = async () => {
-    if (!resolveOutcome) { setTicketErr('Select a resolution outcome.'); return }
-    if ((resolveOutcome === 'Ticket Issued' || resolveOutcome === 'Vehicle Clamped') && !ticketRef.trim()) {
-      setTicketErr('Ticket/Clamp reference number is required.')
-      return
-    }
-    setTicketErr('')
-    setResolveLoading(true)
-    try {
-      await reports.resolve(resolveModal.report_id, {
-        resolution_outcome: resolveOutcome,
-        ticket_reference: ticketRef.trim() || undefined,
-      })
-      toast('Report resolved successfully.', 'success')
-      setResolveModal(null)
-      fetchData()
-    } catch (e) { toast(e.message, 'error') }
-    finally { setResolveLoading(false) }
-  }
-
+  // Actions ALWAYS open the report detail first — the officer must review the
+  // report (photos, plate, history) before acknowledging/dispatching/resolving,
+  // which happens on the detail page. This prevents dispatching blind from the queue.
   const ActionCell = ({ row }) => {
-    const busy = actionLoading[row.report_id]
     const isMyReport = row.assigned_officer_id === user?.user_id || row.assigned_officer_id === user?.id
+    let label = 'View'
+    let style = btnStyle('transparent', 'var(--color-text-secondary)', '1px solid var(--color-border)')
 
-    if (row.status === 'verified') {
-      return (
-        <button
-          onClick={() => handleAck(row)}
-          disabled={!!busy}
-          style={btnStyle('var(--accent)', '#fff')}
-        >
-          {busy === 'ack' ? <LoadingSpinner size={12} color="#fff" /> : 'Acknowledge'}
-        </button>
-      )
-    }
-    if (row.status === 'acknowledged' && isMyReport) {
-      return (
-        <button
-          onClick={() => handleDispatch(row)}
-          disabled={!!busy}
-          style={btnStyle('#D97706', '#fff')}
-        >
-          {busy === 'dispatch' ? <LoadingSpinner size={12} color="#fff" /> : 'Dispatch'}
-        </button>
-      )
-    }
-    if (row.status === 'dispatched' && isMyReport) {
-      return (
-        <button
-          onClick={() => { setResolveModal(row); setResolveOutcome(''); setTicketRef(''); setTicketErr('') }}
-          style={btnStyle('#10B981', '#fff')}
-        >
-          Resolve
-        </button>
-      )
-    }
     if (row.status === 'escalated' || row.is_escalated) {
-      return (
-        <button
-          onClick={() => navigate(`/mtpb/officer/reports/${row.report_id}`)}
-          style={btnStyle('transparent', '#DC2626', '1.5px solid #DC2626')}
-        >
-          View
-        </button>
-      )
+      label = 'Review'
+      style = btnStyle('transparent', '#DC2626', '1.5px solid #DC2626')
+    } else if (row.status === 'verified') {
+      label = 'Review & Acknowledge'
+      style = btnStyle('var(--accent)', '#fff')
+    } else if (row.status === 'acknowledged' && isMyReport) {
+      label = 'Review & Dispatch'
+      style = btnStyle('#D97706', '#fff')
+    } else if (row.status === 'dispatched' && isMyReport) {
+      label = 'Review & Resolve'
+      style = btnStyle('#10B981', '#fff')
     }
+
     return (
-      <button
-        onClick={() => navigate(`/mtpb/officer/reports/${row.report_id}`)}
-        style={btnStyle('transparent', 'var(--color-text-secondary)', '1px solid var(--color-border)')}
-      >
-        View
+      <button onClick={() => navigate(`/mtpb/officer/reports/${row.report_id}`)} style={style}>
+        {label}
       </button>
     )
   }
@@ -272,82 +197,6 @@ export default function OfficerQueue() {
           </table>
         )}
       </div>
-
-      {/* Resolve Modal */}
-      {resolveModal && (
-        <div
-          onClick={e => { if (e.target === e.currentTarget) setResolveModal(null) }}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
-        >
-          <div className="modal-animate" style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', width: 480, maxWidth: '90vw', padding: 28, boxShadow: 'var(--shadow-lg)' }}>
-            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>Resolve Report RPT-{resolveModal.report_id}</h2>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
-              <PlateBadge plate={resolveModal.plate_number} large />
-              <span style={{ fontSize: 13, color: 'var(--color-text-secondary)' }}>{resolveModal.street_name}</span>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 16 }}>
-              {['Ticket Issued', 'Vehicle Clamped', 'Vehicle No Longer Present'].map(opt => (
-                <label
-                  key={opt}
-                  style={{
-                    display: 'flex', alignItems: 'center', gap: 12,
-                    padding: '0 16px', height: 48,
-                    border: `${resolveOutcome === opt ? 2 : 1}px solid ${resolveOutcome === opt ? 'var(--accent)' : 'var(--color-border)'}`,
-                    borderRadius: 'var(--radius-md)',
-                    background: resolveOutcome === opt ? 'var(--accent-soft)' : 'transparent',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <input
-                    type="radio"
-                    name="resolve_outcome"
-                    value={opt}
-                    checked={resolveOutcome === opt}
-                    onChange={() => { setResolveOutcome(opt); setTicketErr('') }}
-                    style={{ accentColor: 'var(--accent)' }}
-                  />
-                  <span style={{ fontSize: 14, fontWeight: 500 }}>{opt}</span>
-                </label>
-              ))}
-            </div>
-            {(resolveOutcome === 'Ticket Issued' || resolveOutcome === 'Vehicle Clamped') && (
-              <div style={{ marginBottom: 16 }}>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6 }}>
-                  Ticket / Clamp Reference No. *
-                </label>
-                <input
-                  type="text"
-                  value={ticketRef}
-                  onChange={e => setTicketRef(e.target.value)}
-                  placeholder="e.g. TKT-2025-0034"
-                  style={{
-                    width: '100%', padding: '8px 12px', borderRadius: 6,
-                    border: ticketErr ? '1.5px solid #EF4444' : '1px solid var(--color-border)',
-                    fontSize: 13, fontFamily: 'JetBrains Mono, monospace',
-                    background: 'var(--color-bg)', color: 'var(--color-text-primary)',
-                  }}
-                />
-              </div>
-            )}
-            {ticketErr && <div style={{ fontSize: 12, color: '#EF4444', marginBottom: 12 }}>{ticketErr}</div>}
-            <button
-              onClick={handleResolveConfirm}
-              disabled={resolveLoading}
-              style={{
-                width: '100%', height: 40, borderRadius: 6,
-                background: 'var(--accent)', color: '#fff',
-                border: 'none', fontSize: 14, fontWeight: 600,
-                cursor: resolveLoading ? 'not-allowed' : 'pointer',
-                opacity: resolveLoading ? 0.7 : 1,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
-              }}
-            >
-              {resolveLoading && <LoadingSpinner size={14} color="#fff" />}
-              Confirm Resolution
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

@@ -4,11 +4,13 @@
  * Reference + test-account seed (Malate District, Manila).
  *
  * Inserts:
- *   - Barangays 701–720 (all is_participating = TRUE)
- *   - 20 real Malate streets, assigned evenly across Barangays 701–710
+ *   - The 5 UAT partner barangays (726, 727, 729, 730, 762 — Malate, Zone 79)
+ *     and prunes any other barangays the docker init seed.sql created
+ *   - Each partner barangay's streets (see PARTNER_BARANGAYS) with map coordinates
  *   - The canonical 10 active parking rules per street (RA 4136 + MMDA 2023)
- *   - The 3 penalty tiers (₱1,000 / ₱2,000 / ₱3,000, MMDA MMTC 2023)
- *   - 5 test users, one per role + 1 deactivated account
+ *   - The 4 penalty tiers (Verbal Warning / Ticket ₱500 / Wheel Clamp ₱1,000 / Impound ₱2,000)
+ *   - 5 test users, one per role + 1 deactivated account + one official per
+ *     partner barangay (barangay726…762@test.com)
  *     — DEVELOPMENT ONLY, remove before production
  *
  * Run (from the backend/ directory):
@@ -33,60 +35,52 @@ const TEST_PASSWORD = 'Test1234!';
 // Data
 // ---------------------------------------------------------------------------
 
-// Malate District barangays 701–720, all participating in the pilot.
-const BARANGAY_NUMBERS = Array.from({ length: 20 }, (_, i) => 701 + i);
-
-// Real Malate streets — assigned evenly (2 each, in order) across 701–710.
-const STREET_NAMES = [
-  'Adriatico Street',
-  'Remedios Street',
-  'M.H. Del Pilar Street',
-  'Mabini Street',
-  'J. Bocobo Street',
-  'Nakpil Street',
-  'Orosa Street',
-  'Julio Nakpil Street',
-  'Leveriza Street',
-  'Pablo Ocampo Street',
-  'Pedro Gil Street',
-  'Taft Avenue',
-  'Vito Cruz Street',
-  'UN Avenue',
-  'Kalaw Avenue',
-  'Roxas Boulevard (service road)',
-  'Agno Street',
-  'Dominga Street',
-  'Singalong Street',
-  'General Luna Street',
+// ── UAT partner barangays (Malate, Zone 79 / District V, Manila) ──────────────
+// The five real partner barangays for UAT, and the streets that fall under each.
+//
+// Each barangay's CENTROID (lat/lng) is VERIFIED against OpenStreetMap and drives
+// the barangay-level violation heat map (one density blob per barangay). We plot by
+// barangay — not per-street — because Manila street names repeat across the city
+// and exact barangay boundaries aren't published, which made per-street coordinates
+// unreliable. All five centroids cluster east of Taft around Vito Cruz (Zone 79).
+//
+// Street lists are the barangay captains' confirmed streets (provided for UAT).
+// A street name may appear under more than one barangay (e.g. Pablo Ocampo in 729
+// and 762) — that's fine, each is a separate STREETS row per barangay.
+const PARTNER_BARANGAYS = [
+  { number: 726, lat: 14.5674, lng: 120.9952, streets: [
+    { name: 'Cong A. Francisco Street' },
+    { name: 'J.B. Roxas Street' },
+    { name: 'Maligaya Street' },
+    { name: 'Singalong Street' },
+  ] },
+  { number: 727, lat: 14.5659, lng: 120.9955, streets: [
+    { name: 'Leon Guinto Street' },
+    { name: 'Del Carmen Street' },
+    { name: 'Captain Ticong Street' },
+    { name: 'Dagonoy Street' },
+    { name: 'Don Ysidro Street' },
+  ] },
+  { number: 729, lat: 14.5620, lng: 120.9960, streets: [
+    { name: 'Sandejas Street' },
+    { name: 'Pablo Ocampo Street' },
+    { name: 'Daang Radayal Blg.2' },
+  ] },
+  { number: 730, lat: 14.5626, lng: 120.9975, streets: [
+    { name: 'Tramo Street' },
+    { name: 'Dominga Street' },
+    { name: 'Villarel Street' },
+  ] },
+  { number: 762, lat: 14.5696, lng: 120.9942, streets: [
+    { name: 'Arellano Street' },
+    { name: 'Don Pedro Street' },
+    { name: 'C.Ayala Street' },
+    { name: 'Consuelo Street' },
+    { name: 'Pablo Ocampo Street' },
+    { name: 'Bautista Street' },
+  ] },
 ];
-
-// Approximate Malate coordinates per street (mirrors migration 016), keyed by the
-// exact names above. Seeded so the supervisor violation heat map always has points
-// to plot — without these, STREETS.latitude/longitude stay NULL after a reseed and
-// the map renders empty.
-const STREET_COORDS = {
-  'Adriatico Street':               [14.5685, 120.9868],
-  'Remedios Street':                [14.5668, 120.9882],
-  'M.H. Del Pilar Street':          [14.5702, 120.9838],
-  'Mabini Street':                  [14.5692, 120.9853],
-  'J. Bocobo Street':               [14.5722, 120.9876],
-  'Nakpil Street':                  [14.5675, 120.9888],
-  'Orosa Street':                   [14.5746, 120.9866],
-  'Julio Nakpil Street':            [14.5676, 120.9890],
-  'Leveriza Street':                [14.5652, 120.9962],
-  'Pablo Ocampo Street':            [14.5612, 120.9932],
-  'Pedro Gil Street':               [14.5735, 120.9892],
-  'Taft Avenue':                    [14.5662, 120.9942],
-  'Vito Cruz Street':               [14.5606, 120.9926],
-  'UN Avenue':                      [14.5820, 120.9872],
-  'Kalaw Avenue':                   [14.5800, 120.9822],
-  'Roxas Boulevard (service road)': [14.5700, 120.9792],
-  'Agno Street':                    [14.5626, 120.9946],
-  'Dominga Street':                 [14.5636, 120.9952],
-  'Singalong Street':               [14.5602, 120.9986],
-  'General Luna Street':            [14.5758, 120.9852],
-};
-const STREETS_PER_BARANGAY = STREET_NAMES.length / 10; // 2 per barangay, 701–710
+const PARTNER_NUMBERS = PARTNER_BARANGAYS.map((b) => b.number);
 
 // Active rules added for every street — the canonical 10 violation types
 // (RA 4136 + MMDA MMTC 2023). Kept in sync with migration 019; the exact
@@ -122,7 +116,7 @@ const PENALTY_TIERS = [
 // the id is looked up by name so the seed also works on pre-existing databases.
 const TEST_USERS = [
   { email: 'citizen@test.com',    role: 'citizen',         first_name: 'Test', last_name: 'Citizen',    barangay: null,           alias: 'Citizen_test01' },
-  { email: 'barangay@test.com',   role: 'brgy_official',   first_name: 'Test', last_name: 'Official',   barangay: 'Barangay 701', alias: 'Official_test01' },
+  { email: 'barangay@test.com',   role: 'brgy_official',   first_name: 'Test', last_name: 'Official',   barangay: 'Barangay 726', alias: 'Official_test01' },
   { email: 'officer@test.com',    role: 'mtpb_officer',    first_name: 'Test', last_name: 'Officer',    barangay: null,           alias: 'Officer_test01' },
   { email: 'supervisor@test.com', role: 'mtpb_supervisor', first_name: 'Test', last_name: 'Supervisor', barangay: null,           alias: 'Supervisor_test01' },
   { email: 'admin@test.com',      role: 'admin',           first_name: 'Test', last_name: 'Admin',      barangay: null,           alias: 'Admin_test01' },
@@ -133,17 +127,37 @@ const TEST_USERS = [
 // ---------------------------------------------------------------------------
 
 async function seedBarangays(connection) {
-  for (const number of BARANGAY_NUMBERS) {
-    // Upsert so barangays seeded earlier with is_participating = FALSE
-    // are flipped to participating, per the pilot scope.
+  // Create the partner barangays (participating in the pilot) with their centroid
+  // coordinates for the barangay-level heat map.
+  for (const { number, lat, lng } of PARTNER_BARANGAYS) {
     await connection.execute(
-      `INSERT INTO BARANGAYS (barangay_name, barangay_number, is_participating)
-       VALUES (?, ?, TRUE)
-       ON DUPLICATE KEY UPDATE is_participating = TRUE`,
-      [`Barangay ${number}`, String(number)]
+      `INSERT INTO BARANGAYS (barangay_name, barangay_number, is_participating, latitude, longitude)
+       VALUES (?, ?, TRUE, ?, ?)
+       ON DUPLICATE KEY UPDATE is_participating = TRUE, latitude = VALUES(latitude), longitude = VALUES(longitude)`,
+      [`Barangay ${number}`, String(number), lat, lng]
     );
   }
-  logger.info(`Barangays seeded (${BARANGAY_NUMBERS.length} rows, 701–720)`);
+
+  // Prune any NON-partner barangays (e.g. the old 701–720 test set that the docker
+  // init seed.sql creates) and their streets + parking rules, so the citizen
+  // street picker and staff queues only show the real partner barangays.
+  // Safe on a fresh UAT DB (no reports yet). If a report already references a
+  // non-partner street the FK blocks the delete rather than orphaning data —
+  // always run this after `docker compose down -v` for UAT.
+  const ph = PARTNER_NUMBERS.map(() => '?').join(', ');
+  await connection.query(
+    `DELETE pr FROM PARKING_RULES pr
+       JOIN STREETS s   ON s.street_id   = pr.street_id
+       JOIN BARANGAYS b ON b.barangay_id = s.barangay_id
+      WHERE b.barangay_number NOT IN (${ph})`, PARTNER_NUMBERS);
+  await connection.query(
+    `DELETE s FROM STREETS s
+       JOIN BARANGAYS b ON b.barangay_id = s.barangay_id
+      WHERE b.barangay_number NOT IN (${ph})`, PARTNER_NUMBERS);
+  await connection.query(
+    `DELETE FROM BARANGAYS WHERE barangay_number NOT IN (${ph})`, PARTNER_NUMBERS);
+
+  logger.info(`Barangays seeded (${PARTNER_BARANGAYS.length} partner barangays: ${PARTNER_NUMBERS.join(', ')}; non-partners pruned)`);
 }
 
 // Returns Map<barangay_name, barangay_id> for the seeded barangays.
@@ -155,27 +169,22 @@ async function getBarangayIds(connection) {
 }
 
 async function seedStreets(connection, barangayIds) {
-  for (let i = 0; i < STREET_NAMES.length; i++) {
-    const barangayName = `Barangay ${701 + Math.floor(i / STREETS_PER_BARANGAY)}`;
-    const barangayId = barangayIds.get(barangayName);
-    // uq_street_per_barangay (barangay_id, street_name) makes this idempotent.
-    await connection.execute(
-      'INSERT IGNORE INTO STREETS (barangay_id, street_name, is_active) VALUES (?, ?, TRUE)',
-      [barangayId, STREET_NAMES[i]]
-    );
+  let streetCount = 0;
+  for (const { number, streets } of PARTNER_BARANGAYS) {
+    const barangayId = barangayIds.get(`Barangay ${number}`);
+    if (!barangayId) continue;
+    for (const st of streets) {
+      // uq_street_per_barangay (barangay_id, street_name) makes this idempotent.
+      // Street coordinates are no longer needed — the heat map plots by barangay
+      // centroid (see BARANGAYS.latitude/longitude), not per street.
+      await connection.execute(
+        'INSERT IGNORE INTO STREETS (barangay_id, street_name, is_active) VALUES (?, ?, TRUE)',
+        [barangayId, st.name]
+      );
+      streetCount++;
+    }
   }
-
-  // Backfill coordinates so the violation heat map has points to plot. Runs every
-  // seed (idempotent UPDATE) so a reset never leaves streets without lat/lng.
-  let coordCount = 0;
-  for (const [name, [lat, lng]] of Object.entries(STREET_COORDS)) {
-    const [res] = await connection.execute(
-      'UPDATE STREETS SET latitude = ?, longitude = ? WHERE street_name = ?',
-      [lat, lng, name]
-    );
-    coordCount += res.affectedRows;
-  }
-  logger.info(`Streets seeded (${STREET_NAMES.length} rows across Barangays 701–710, ${coordCount} coordinates set)`);
+  logger.info(`Streets seeded (${streetCount} streets across ${PARTNER_BARANGAYS.length} partner barangays)`);
 }
 
 async function seedParkingRules(connection) {
@@ -299,17 +308,15 @@ async function seedDeactivatedUser(connection) {
   logger.info('Deactivated test account seeded (deactivated@test.com, is_active = FALSE)');
 }
 
-// One barangay official PER participating barangay (701–710, the barangays that
-// actually have streets seeded). Without this there is a single official scoped
-// to one barangay, so a citizen report on any other barangay's street has no one
-// who can verify it (FR-12 scoping) and the demo stalls. Emails are
-// barangay701@test.com … barangay710@test.com, all password Test1234!.
-// barangay@test.com (in TEST_USERS) remains as the legacy alias for Barangay 701.
+// One barangay official PER partner barangay, so a citizen report on any partner
+// street has an official who can verify it (FR-12 scopes each official to their
+// own barangay). Emails are barangay726@test.com … barangay762@test.com, all
+// password Test1234!. barangay@test.com (in TEST_USERS) is the alias for Barangay 726.
 async function seedBarangayOfficials(connection, barangayIds) {
   const hash = await bcrypt.hash(TEST_PASSWORD, SALT_ROUNDS);
   let count = 0;
-  for (let n = 701; n <= 710; n++) {
-    const barangayId = barangayIds.get(`Barangay ${n}`);
+  for (const { number } of PARTNER_BARANGAYS) {
+    const barangayId = barangayIds.get(`Barangay ${number}`);
     if (!barangayId) continue; // barangay not seeded — skip rather than orphan
     await connection.execute(
       `INSERT INTO USERS
@@ -322,11 +329,11 @@ async function seedBarangayOfficials(connection, barangayIds) {
          barangay_id   = VALUES(barangay_id),
          is_verified   = FALSE,
          is_active     = TRUE`,
-      [`Brgy ${n}`, 'Official', `barangay${n}@test.com`, hash, `Official_brgy${n}`, barangayId]
+      [`Brgy ${number}`, 'Official', `barangay${number}@test.com`, hash, `Official_brgy${number}`, barangayId]
     );
     count++;
   }
-  logger.info(`Barangay officials seeded (${count} rows, barangay701–710@test.com)`);
+  logger.info(`Barangay officials seeded (${count} rows: barangay${PARTNER_NUMBERS[0]}@test.com … barangay${PARTNER_NUMBERS[PARTNER_NUMBERS.length - 1]}@test.com)`);
 }
 
 // ---------------------------------------------------------------------------
@@ -349,12 +356,12 @@ async function seed() {
 
     logger.info('─────────────────────────────────────────');
     logger.info(`Seed complete. Test accounts use password: ${TEST_PASSWORD}`);
-    logger.info('  citizen@test.com           → citizen');
-    logger.info('  barangay@test.com          → brgy_official (Barangay 701)');
-    logger.info('  barangay701–710@test.com   → brgy_official (one per barangay 701–710)');
-    logger.info('  officer@test.com           → mtpb_officer');
-    logger.info('  supervisor@test.com        → mtpb_supervisor');
-    logger.info('  admin@test.com             → admin');
+    logger.info('  citizen@test.com                → citizen');
+    logger.info('  barangay@test.com               → brgy_official (Barangay 726)');
+    logger.info(`  barangay{${PARTNER_NUMBERS.join('/')}}@test.com → brgy_official (one per partner barangay)`);
+    logger.info('  officer@test.com                → mtpb_officer');
+    logger.info('  supervisor@test.com             → mtpb_supervisor');
+    logger.info('  admin@test.com                  → admin');
     logger.info('⚠ Test accounts are for development only — remove before production.');
     logger.info('─────────────────────────────────────────');
   } catch (err) {

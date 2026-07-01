@@ -24,6 +24,8 @@ CREATE TABLE IF NOT EXISTS BARANGAYS (
   barangay_name    VARCHAR(100) NOT NULL,
   barangay_number  VARCHAR(10),
   is_participating BOOLEAN      NOT NULL DEFAULT TRUE,
+  latitude         DECIMAL(10, 7),                     -- [mig023] centroid for the barangay-level heat map
+  longitude        DECIMAL(10, 7),                     -- [mig023]
   created_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   PRIMARY KEY (barangay_id),
@@ -113,6 +115,7 @@ CREATE TABLE IF NOT EXISTS VIOLATION_REPORTS (
   barangay_id         INT,                               -- [ext] denormalized from street for faster queries
   violation_type      VARCHAR(100),
   photo_path          VARCHAR(300),                      -- GCS object path, e.g. gs://bucket/reports/uuid.jpg
+  additional_photos   TEXT,                              -- [mig024] JSON array of extra evidence photo paths
   ocr_raw_response    TEXT,                              -- full JSON from Google Cloud Vision API
   ocr_extracted_plate VARCHAR(20),                       -- plate text extracted by OCR
   ocr_confidence_score DECIMAL(5,2),                     -- Vision API confidence 0.00–100.00
@@ -273,6 +276,8 @@ INSERT IGNORE INTO SCHEMA_MIGRATIONS (migration_name) VALUES
   ('019_clean_violation_types.sql'),
   ('020_fix_penalty_tier_fines.sql'),
   ('021_create_mtpb_queue.sql'),
-  ('022_penalty_4tier.sql');
+  ('022_penalty_4tier.sql'),
+  ('023_barangay_coordinates.sql'),
+  ('024_report_additional_photos.sql');
 
 SET FOREIGN_KEY_CHECKS = 1;

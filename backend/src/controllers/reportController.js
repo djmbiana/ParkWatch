@@ -35,6 +35,18 @@ const duplicateWindowMinutes = () =>
 const fail = (res, statusCode, error) =>
   res.status(statusCode).json({ success: false, error, message: error });
 
+// Extra evidence photos (migration 024). Each must point at our storage bucket;
+// invalid entries are dropped, and the list is capped so a report can't attach an
+// unbounded number of images. Returns an array of GCS object paths.
+const MAX_ADDITIONAL_PHOTOS = 5;
+const parseAdditionalPhotos = (raw) => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .slice(0, MAX_ADDITIONAL_PHOTOS)
+    .map((u) => { try { return storageService.parsePhotoRef(u).objectPath; } catch { return null; } })
+    .filter(Boolean);
+};
+
 // Public shape for a PENALTY_TIERS row (4-tier structure, migration 022).
 const formatTier = (tier) =>
   tier
@@ -106,7 +118,7 @@ const findActiveRule = async (streetId, violationType) => {
 const finishPipeline = async (res, ctx) => {
   const {
     plate, citizenId, anonymousAlias, fcmToken, streetId, barangayId, violationType,
-    photoPath, ocrRawResponse, ocrExtractedPlate, ocrConfidenceScore, manualPlateInput,
+    photoPath, additionalPhotos, ocrRawResponse, ocrExtractedPlate, ocrConfidenceScore, manualPlateInput,
   } = ctx;
 
   // Unguessable bearer token so anonymous submitters (and only they) can read
@@ -194,10 +206,10 @@ const finishPipeline = async (res, ctx) => {
 
     const [inserted] = await connection.execute(
       `INSERT INTO VIOLATION_REPORTS
-         (citizen_id, anonymous_alias, access_token, fcm_token_id, vehicle_id, street_id, barangay_id, violation_type, photo_path,
+         (citizen_id, anonymous_alias, access_token, fcm_token_id, vehicle_id, street_id, barangay_id, violation_type, photo_path, additional_photos,
           ocr_raw_response, ocr_extracted_plate, ocr_confidence_score,
           manual_plate_input, penalty_tier_id, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
         citizenId,
         anonymousAlias,
@@ -208,6 +220,7 @@ const finishPipeline = async (res, ctx) => {
         barangayId,
         violationType,
         photoPath,
+        additionalPhotos && additionalPhotos.length ? JSON.stringify(additionalPhotos) : null,
         ocrRawResponse ? String(ocrRawResponse).slice(0, MAX_RAW_RESPONSE_CHARS) : null,
         ocrExtractedPlate ?? null,
         ocrConfidenceScore ?? null,
@@ -271,6 +284,8 @@ const create = async (req, res, next) => {
     // photo_url must point at our bucket (throws 400 otherwise); the bare
     // object path is what gets stored in VIOLATION_REPORTS.photo_path.
     const { objectPath } = storageService.parsePhotoRef(photo_url);
+    // Optional extra evidence photos (validated against our bucket).
+    const additionalPhotos = parseAdditionalPhotos(req.body.additional_photos);
 
     // Primary flow: the client sends the citizen-confirmed plate. OCR already
     // ran via POST /api/reports/ocr and the citizen reviewed (and possibly
@@ -296,6 +311,7 @@ const create = async (req, res, next) => {
         barangayId: rule.barangay_id,
         violationType: violation_type,
         photoPath: objectPath,
+        additionalPhotos,
         ocrRawResponse: null,
         ocrExtractedPlate: ocrNormalized,
         ocrConfidenceScore: req.body.ocr_confidence_score ?? null,
@@ -334,6 +350,7 @@ const create = async (req, res, next) => {
       barangayId: rule.barangay_id,
       violationType: violation_type,
       photoPath: objectPath,
+      additionalPhotos,
       ocrRawResponse: ocr.raw_response,
       ocrExtractedPlate: normalized,
       ocrConfidenceScore: ocr.confidence_score,
@@ -442,6 +459,7 @@ const confirm = async (req, res, next) => {
     }
 
     const { objectPath } = storageService.parsePhotoRef(photo_url);
+    const additionalPhotos = parseAdditionalPhotos(req.body.additional_photos);
 
     // Step 4 — format validation on the manual input
     const { valid, normalized } = await ocrService.validatePlateFormat(manual_plate_input);
@@ -459,6 +477,7 @@ const confirm = async (req, res, next) => {
       barangayId: rule.barangay_id,
       violationType: violation_type,
       photoPath: objectPath,
+      additionalPhotos,
       ocrRawResponse: ocr_raw_response ?? null,
       ocrExtractedPlate: ocr_extracted_plate ?? null,
       ocrConfidenceScore: ocr_confidence_score ?? null,
@@ -531,7 +550,7 @@ const getById = async (req, res, next) => {
   try {
     const [[report]] = await pool.execute(
       `SELECT r.report_id, r.citizen_id, r.vehicle_id, r.street_id, r.barangay_id,
-              r.violation_type, r.photo_path, r.ocr_extracted_plate, r.ocr_confidence_score,
+              r.violation_type, r.photo_path, r.additional_photos, r.ocr_extracted_plate, r.ocr_confidence_score,
               r.manual_plate_input, r.status, r.resolution_outcome, r.rejection_reason,
               r.is_escalated, r.ticket_reference, r.access_token,
               r.submitted_at, r.verified_at, r.acknowledged_at, r.dispatched_at,
@@ -572,14 +591,27 @@ const getById = async (req, res, next) => {
 
     // Presigned GCS URL (15 min). Falls back to the plain object URL when
     // signing is unavailable (e.g. local dev without a service-account key).
-    let photoUrl = null;
-    if (report.photo_path) {
+    const signPhoto = async (path) => {
+      if (!path) return null;
       try {
-        photoUrl = await storageService.getSignedReadUrl(report.photo_path, 15);
+        return await storageService.getSignedReadUrl(path, 15);
       } catch (err) {
-        logger.warn(`Could not presign ${report.photo_path}: ${err.message}`);
-        photoUrl = `https://storage.googleapis.com/${process.env.GCS_BUCKET_NAME}/${report.photo_path}`;
+        logger.warn(`Could not presign ${path}: ${err.message}`);
+        return `https://storage.googleapis.com/${process.env.GCS_BUCKET_NAME}/${path}`;
       }
+    };
+
+    const photoUrl = await signPhoto(report.photo_path);
+
+    // Extra evidence photos (migration 024) — signed the same way as the primary.
+    let additionalPhotoUrls = [];
+    if (report.additional_photos) {
+      try {
+        const paths = JSON.parse(report.additional_photos);
+        if (Array.isArray(paths)) {
+          additionalPhotoUrls = (await Promise.all(paths.map(signPhoto))).filter(Boolean);
+        }
+      } catch { /* malformed JSON — no extra photos */ }
     }
 
     // Cross-barangay violation history of the vehicle
@@ -610,6 +642,7 @@ const getById = async (req, res, next) => {
           : null,
         photo_url: photoUrl,
         photo_path: report.photo_path,
+        additional_photos: additionalPhotoUrls,
         ocr_extracted_plate: report.ocr_extracted_plate,
         ocr_confidence_score: report.ocr_confidence_score === null ? null : Number(report.ocr_confidence_score),
         manual_plate_input: report.manual_plate_input,

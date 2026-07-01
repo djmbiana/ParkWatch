@@ -52,16 +52,15 @@ export default function SupervisorEscalated() {
   useEffect(() => { setPageTitle('Escalated Reports') }, [setPageTitle])
 
   const fetchData = useCallback(() => {
-    return Promise.all([
-      reports.mtpbQueue().catch(() => null),
-      reports.analyticsSum().catch(() => null),
-    ]).then(([q, s]) => {
-      const arr = Array.isArray(q) ? q : (q?.reports ?? [])
-      setData(arr.filter(r => r.is_escalated || r.status === 'escalated'))
-      if (s) setStats(s)
+    // The supervisor queue returns the ESCALATED reports (the officer queue
+    // excludes them, which is why this table used to render empty) plus its
+    // own stats (escalated_now, avg escalation time, resolution rate).
+    return reports.supervisorQueue().then((q) => {
+      setData(q?.reports ?? [])
+      if (q?.stats) setStats(q.stats)
       lastFetch.current = Date.now()
       setSecAgo(0)
-    }).finally(() => setLoading(false))
+    }).catch(() => {}).finally(() => setLoading(false))
   }, [])
 
   useEffect(() => {

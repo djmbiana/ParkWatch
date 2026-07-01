@@ -69,6 +69,7 @@ export const reports = {
   barangayQueue:  (params = {}) => request(`/api/reports/queue/barangay${qs(params)}`),
   barangayStats:  () => request('/api/reports/stats/barangay'),
   mtpbQueue:      (params = {}) => request(`/api/reports/queue/mtpb${qs(params)}`),
+  supervisorQueue:(params = {}) => request(`/api/reports/queue/supervisor${qs(params)}`),
   analyticsSum:   (params = {}) => request(`/api/reports/analytics/summary${qs(params)}`),
   repeatOffenders:() => request('/api/reports/analytics/repeat-offenders'),
   violationMap:   () => request('/api/reports/analytics/violation-map', { cache: 'no-store' }),
@@ -98,7 +99,10 @@ export const adminUsers = {
 // Admin - barangays
 export const adminBarangays = {
   list:   (params = {}) => request(`/api/admin/barangays${qs(params)}`),
+  create: (body) =>        request('/api/admin/barangays', { method: 'POST', body: JSON.stringify(body) }),
   toggle: (id) =>          request(`/api/admin/barangays/${id}/toggle`, { method: 'PATCH' }),
+  setLocation: (id, latitude, longitude) =>
+    request(`/api/admin/barangays/${id}/location`, { method: 'PATCH', body: JSON.stringify({ latitude, longitude }) }),
 }
 
 // Admin - streets & rules

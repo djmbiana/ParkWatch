@@ -53,19 +53,19 @@ export default function ViolationHeatMap() {
     const maxCount = Math.max(...points.map((p) => p.violation_count), 1)
     const heat = L.heatLayer(
       points.map((p) => [p.latitude, p.longitude, p.violation_count / maxCount]),
-      { radius: 35, blur: 25, maxZoom: 17 }
+      { radius: 45, blur: 32, maxZoom: 17 }
     ).addTo(map)
     layersRef.current.push(heat)
 
     points.forEach((p) => {
       const marker = L.circleMarker([p.latitude, p.longitude], {
-        radius: 5 + Math.min(p.violation_count, 10),
+        radius: 8 + Math.min(p.violation_count, 12),
         color: '#DC2626',
         weight: 1,
         fillColor: '#EF4444',
         fillOpacity: 0.5,
       })
-        .bindTooltip(`${p.street_name} (${p.barangay_name}) - ${p.violation_count} violation${p.violation_count === 1 ? '' : 's'}`)
+        .bindTooltip(`${p.barangay_name} - ${p.violation_count} violation${p.violation_count === 1 ? '' : 's'}`)
         .addTo(map)
       layersRef.current.push(marker)
     })
@@ -82,7 +82,7 @@ export default function ViolationHeatMap() {
     <div style={{ position: 'relative', marginBottom: 24 }}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Street-Level Violation Density Map
+          Barangay-Level Violation Density Map
         </span>
         <button
           type="button"

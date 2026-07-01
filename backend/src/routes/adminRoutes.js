@@ -17,7 +17,9 @@ router.get  ('/officers',               ...adminOrSup, adminController.listOffic
 
 // Barangays
 router.get  ('/barangays',                ...admin, adminController.listBarangays);
-router.patch('/barangays/:barangayId/toggle', ...admin, adminController.toggleBarangay);
+router.post ('/barangays',                ...admin, adminController.createBarangay);
+router.patch('/barangays/:barangayId/toggle',   ...admin, adminController.toggleBarangay);
+router.patch('/barangays/:barangayId/location', ...admin, adminController.setBarangayLocation);
 
 // Streets & Rules
 router.get  ('/streets',                  ...admin, adminController.listStreets);

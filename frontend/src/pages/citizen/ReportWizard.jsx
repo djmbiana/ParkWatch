@@ -73,6 +73,10 @@ export default function ReportWizard() {
   const [penaltyLoading, setPenaltyLoading] = useState(false)
   // Advisory duplicate heads-up (this plate already reported on this street recently)
   const [dupInfo, setDupInfo] = useState(null)
+  // Optional extra evidence photos (uploaded to GCS, sent as additional_photos).
+  const [extraPhotos, setExtraPhotos] = useState([]) // [{ url, preview }]
+  const [extraUploading, setExtraUploading] = useState(false)
+  const extraInputRef = useRef(null)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
   const [showConfirm, setShowConfirm] = useState(false)
@@ -179,6 +183,7 @@ export default function ReportWizard() {
         ocr_extracted_plate: ocrPlate,
         ocr_confidence_score: ocrConfidence,
       }
+      if (extraPhotos.length) body.additional_photos = extraPhotos.map(p => p.url)
       const alias = citizenStore.getAlias(); if (alias) body.anonymous_alias = alias
       const fcm = citizenStore.getFcmToken(); if (fcm) body.fcm_token = fcm
       finishSuccess(await citizen.createReport(body))
@@ -189,12 +194,32 @@ export default function ReportWizard() {
     }
   }
 
+  // Extra evidence photos (optional). Uploaded to GCS immediately; the returned
+  // URLs are sent as additional_photos on submit.
+  const addExtraPhoto = async (file) => {
+    if (!file) return
+    if (!ALLOWED_TYPES.includes(file.type)) { setSubmitError("Only photo files are accepted."); return }
+    if (file.size > MAX_BYTES) { setSubmitError("Each photo must be under 10MB."); return }
+    if (extraPhotos.length >= 5) { setSubmitError("You can add up to 5 extra photos."); return }
+    setExtraUploading(true); setSubmitError(null)
+    try {
+      const { photo_url } = await citizen.uploadPhoto(file)
+      setExtraPhotos(p => [...p, { url: photo_url, preview: URL.createObjectURL(file) }])
+    } catch (e) {
+      setSubmitError(e.message || "Couldn't upload that photo.")
+    } finally {
+      setExtraUploading(false)
+      if (extraInputRef.current) extraInputRef.current.value = ""
+    }
+  }
+  const removeExtraPhoto = (i) => setExtraPhotos(p => p.filter((_, idx) => idx !== i))
+
   const resetWizard = () => {
     setStep(1); setView("wizard")
     setPhotoFile(null); setPhotoUrl(null); setPhotoError(null); setProcessError(null); setPreview(null)
     setOcrPlate(null); setOcrConfidence(null); setPlate("")
     setSelectedStreet(null); setSelectedViolation(null); setVTypes([])
-    setPenalty(null); setSubmitError(null)
+    setPenalty(null); setSubmitError(null); setExtraPhotos([])
   }
 
   const handleBack = () => {
@@ -347,6 +372,10 @@ export default function ReportWizard() {
               searchable
               searchPlaceholder="Search streets..."
             />
+            <p style={{ fontSize: 12, color: "var(--c-muted)", margin: "8px 2px 0", lineHeight: 1.5 }}>
+              Only streets in barangays partnered with ParkWatch are shown. If you can&apos;t
+              find your street or barangay, it hasn&apos;t partnered with ParkWatch yet.
+            </p>
 
             {/* Violation */}
             <p style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--c-muted)", margin: "16px 0 8px" }}>Violation Type *</p>
@@ -415,7 +444,32 @@ export default function ReportWizard() {
               </div>
             </div>
 
-            <div style={{ marginTop: 12, background: "var(--c-primary-lt)", borderRadius: 12, padding: 14, display: "flex", gap: 10 }}>
+            {/* Additional evidence photos (optional) */}
+            <div style={{ marginTop: 16 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: "var(--c-text)", margin: "0 0 4px" }}>Additional Photos <span style={{ color: "var(--c-muted)", fontWeight: 400 }}>(optional)</span></p>
+              <p style={{ fontSize: 12, color: "var(--c-muted)", margin: "0 0 10px", lineHeight: 1.5 }}>
+                Add more angles or context (e.g. surroundings, signage) to support your report. Up to 5.
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+                {extraPhotos.map((p, i) => (
+                  <div key={i} style={{ position: "relative", width: 72, height: 72 }}>
+                    <img src={p.preview} alt={`Extra ${i + 1}`} style={{ width: 72, height: 72, objectFit: "cover", borderRadius: 10, border: "1px solid var(--c-border)" }} />
+                    <button type="button" onClick={() => removeExtraPhoto(i)} aria-label="Remove photo"
+                      style={{ position: "absolute", top: -6, right: -6, width: 22, height: 22, borderRadius: "50%", background: "var(--c-danger)", color: "#fff", border: "2px solid var(--c-surface)", fontSize: 13, lineHeight: 1, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>×</button>
+                  </div>
+                ))}
+                {extraPhotos.length < 5 && (
+                  <button type="button" onClick={() => extraInputRef.current?.click()} disabled={extraUploading}
+                    style={{ width: 72, height: 72, borderRadius: 10, border: "1.5px dashed var(--c-border)", background: "var(--c-surface)", color: "var(--c-muted)", cursor: extraUploading ? "wait" : "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2, fontSize: 12 }}>
+                    {extraUploading ? <LoadingSpinner size={16} /> : <><FolderOpen size={18} /><span>Add</span></>}
+                  </button>
+                )}
+              </div>
+              <input ref={extraInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment"
+                onChange={e => { addExtraPhoto(e.target.files?.[0]); }} style={{ display: "none" }} />
+            </div>
+
+            <div style={{ marginTop: 16, background: "var(--c-primary-lt)", borderRadius: 12, padding: 14, display: "flex", gap: 10 }}>
               <Lock size={16} color="var(--c-primary)" style={{ flexShrink: 0, marginTop: 2 }} />
               <p style={{ fontSize: 13, color: "var(--c-primary)" }}>
                 Your identity is anonymized. Only <strong>{alias || "your Reporter ID"}</strong> will be visible to enforcement officials.

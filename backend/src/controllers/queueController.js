@@ -544,16 +544,17 @@ const repeatOffenders = async (req, res, next) => {
 // ---------------------------------------------------------------------------
 const violationMap = async (req, res, next) => {
   try {
+    // Barangay-level density: one point per barangay at its verified OSM centroid,
+    // counting all non-rejected reports in that barangay. Plotting per-street was
+    // unreliable (Manila street names repeat; barangay boundaries aren't published).
     const [rows] = await pool.execute(
-      `SELECT s.street_id, s.street_name, b.barangay_name,
-              s.latitude, s.longitude,
+      `SELECT b.barangay_id, b.barangay_name, b.latitude, b.longitude,
               COUNT(r.report_id) AS violation_count
-         FROM STREETS s
-         LEFT JOIN BARANGAYS b ON b.barangay_id = s.barangay_id
+         FROM BARANGAYS b
          LEFT JOIN VIOLATION_REPORTS r
-                ON r.street_id = s.street_id AND r.status <> 'rejected'
-        WHERE s.latitude IS NOT NULL AND s.longitude IS NOT NULL
-        GROUP BY s.street_id, s.street_name, b.barangay_name, s.latitude, s.longitude
+                ON r.barangay_id = b.barangay_id AND r.status <> 'rejected'
+        WHERE b.latitude IS NOT NULL AND b.longitude IS NOT NULL
+        GROUP BY b.barangay_id, b.barangay_name, b.latitude, b.longitude
        HAVING violation_count > 0
         ORDER BY violation_count DESC`
     );
@@ -562,14 +563,10 @@ const violationMap = async (req, res, next) => {
       success: true,
       message: 'Success',
       data: rows.map((r) => ({
-        street_id: r.street_id,
-        street_name: r.street_name,
+        barangay_id: r.barangay_id,
         barangay_name: r.barangay_name,
-        // Same-named streets in different barangays share approximate seed
-        // coordinates; a small deterministic per-street offset (~tens of metres)
-        // separates their markers so they don't stack on the exact same point.
-        latitude: Number(r.latitude) + ((r.street_id % 7) - 3) * 0.00035,
-        longitude: Number(r.longitude) + ((r.street_id % 5) - 2) * 0.00035,
+        latitude: Number(r.latitude),
+        longitude: Number(r.longitude),
         violation_count: Number(r.violation_count),
       })),
     });

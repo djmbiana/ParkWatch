@@ -111,6 +111,7 @@ const listBarangays = async (req, res, next) => {
   try {
     const [rows] = await pool.execute(
       `SELECT b.barangay_id, b.barangay_name, b.barangay_number, b.is_participating AS is_active,
+              b.latitude, b.longitude,
               CONCAT(u.first_name, ' ', u.last_name) AS assigned_official,
               (SELECT COUNT(*) FROM STREETS s WHERE s.barangay_id = b.barangay_id AND s.is_active = TRUE) AS streets_enrolled,
               (SELECT COUNT(*) FROM VIOLATION_REPORTS r
@@ -126,6 +127,24 @@ const listBarangays = async (req, res, next) => {
   } catch (err) { return next(err); }
 };
 
+// POST /api/admin/barangays  { barangay_name, barangay_number? }
+// Onboards a new barangay to the pilot (participating by default). The admin then
+// provisions an official for it (Users page), adds its streets (Streets page), and
+// sets its map pin — see the barangay page flow. barangay_name is UNIQUE, so a
+// duplicate returns 409 via the error handler.
+const createBarangay = async (req, res, next) => {
+  const name = (req.body.barangay_name || '').trim();
+  const number = (req.body.barangay_number || '').trim() || null;
+  if (!name) return fail(res, 422, 'barangay_name is required.');
+  try {
+    const [result] = await pool.execute(
+      'INSERT INTO BARANGAYS (barangay_name, barangay_number, is_participating) VALUES (?, ?, TRUE)',
+      [name, number]
+    );
+    return res.status(201).json({ success: true, message: 'Barangay added.', data: { barangay_id: result.insertId } });
+  } catch (err) { return next(err); }
+};
+
 const toggleBarangay = async (req, res, next) => {
   const { barangayId } = req.params;
   try {
@@ -134,6 +153,26 @@ const toggleBarangay = async (req, res, next) => {
       [barangayId]
     );
     return res.json({ success: true, message: 'Barangay status toggled.' });
+  } catch (err) { return next(err); }
+};
+
+// PATCH /api/admin/barangays/:barangayId/location  { latitude, longitude }
+// Sets the barangay's map centroid (drives the barangay-level violation heat map).
+// Human-set from the admin map picker, so it matches the real location exactly.
+const setBarangayLocation = async (req, res, next) => {
+  const { barangayId } = req.params;
+  const lat = Number(req.body.latitude);
+  const lng = Number(req.body.longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+    return fail(res, 422, 'Valid latitude and longitude are required.');
+  }
+  try {
+    const [result] = await pool.execute(
+      'UPDATE BARANGAYS SET latitude = ?, longitude = ? WHERE barangay_id = ?',
+      [lat, lng, barangayId]
+    );
+    if (result.affectedRows === 0) return fail(res, 404, 'Barangay not found.');
+    return res.json({ success: true, message: 'Barangay location updated.', data: { latitude: lat, longitude: lng } });
   } catch (err) { return next(err); }
 };
 
@@ -297,7 +336,7 @@ const createTier = async (req, res, next) => {
 
 module.exports = {
   listUsers, createUser, updateUser, deactivateUser, reactivateUser, listOfficers,
-  listBarangays, toggleBarangay,
+  listBarangays, createBarangay, toggleBarangay, setBarangayLocation,
   listStreets, createStreet, deactivateStreet, listRules, toggleRule, createRule,
   listTiers, updateTier, createTier,
 };

@@ -18,11 +18,12 @@ export default function SupervisorDashboard() {
   useEffect(() => {
     Promise.all([
       reports.analyticsSum().catch(() => null),
-      reports.mtpbQueue().catch(() => null),
+      // Escalated reports come from the SUPERVISOR queue — the officer queue
+      // excludes escalated reports, so it can never surface them here.
+      reports.supervisorQueue().catch(() => null),
     ]).then(([s, q]) => {
       if (s) setStats(s)
-      const arr = Array.isArray(q) ? q : (q?.reports ?? [])
-      setEscalated(arr.filter(r => r.is_escalated || r.status === 'escalated').slice(0, 3))
+      setEscalated((q?.reports ?? []).slice(0, 3))
     }).finally(() => setLoading(false))
   }, [])
 
