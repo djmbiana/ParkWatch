@@ -4,9 +4,16 @@ const logger = require('./logger');
 // Connection pool. The pool is created lazily — no network call happens until
 // the first query (or testConnection) runs, which keeps src/app.js importable
 // in tests without a live database.
+//
+// Cloud Run connects to Cloud SQL via a Unix socket at /cloudsql/INSTANCE.
+// When DB_HOST is a socket path, use mysql2's socketPath; otherwise host/port.
+const dbHost = process.env.DB_HOST || '';
+const useSocket = dbHost.startsWith('/cloudsql/');
+
 const pool = mysql.createPool({
-  host: process.env.DB_HOST,
-  port: parseInt(process.env.DB_PORT, 10) || 3306,
+  ...(useSocket
+    ? { socketPath: dbHost }
+    : { host: dbHost, port: parseInt(process.env.DB_PORT, 10) || 3306 }),
   database: process.env.DB_NAME,
   user: process.env.DB_USER,
   password: process.env.DB_PASSWORD || process.env.DB_PASS, // both names supported
