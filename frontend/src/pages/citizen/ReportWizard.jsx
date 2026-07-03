@@ -481,6 +481,13 @@ export default function ReportWizard() {
               {submitting ? "Submitting..." : <><Check size={18} strokeWidth={3} /> Submit Report</>}
             </button>
 
+            <p style={{ fontSize: 12, color: "var(--c-muted)", textAlign: "center", margin: "10px 2px 0", lineHeight: 1.5 }}>
+              By submitting, you confirm this report is accurate and agree to our{" "}
+              <a href="/privacy" target="_blank" rel="noreferrer" style={{ color: "var(--c-primary)", fontWeight: 600 }}>
+                Privacy Notice
+              </a>.
+            </p>
+
             {submitError && (
               <div style={{ marginTop: 12, background: "var(--c-danger-lt)", borderLeft: "3px solid var(--c-danger)", borderRadius: 8, padding: 12 }}>
                 <p style={{ fontSize: 13, color: "var(--c-danger)" }}>{submitError}</p>

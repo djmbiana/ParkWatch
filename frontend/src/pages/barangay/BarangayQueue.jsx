@@ -5,8 +5,9 @@ import StatCard from '../../components/StatCard'
 import DataTable from '../../components/DataTable'
 import StatusBadge from '../../components/StatusBadge'
 import PlateBadge from '../../components/PlateBadge'
+import useAutoRefresh from '../../hooks/useAutoRefresh'
 
-const REFRESH_MS = 30000
+const REFRESH_MS = 15000
 
 function fmt(dt) {
   if (!dt) return '-'
@@ -48,10 +49,10 @@ export default function BarangayQueue() {
 
   useEffect(() => {
     fetchData()
-    const refresh = setInterval(fetchData, REFRESH_MS)
     const ticker = setInterval(() => setSecAgo(Math.floor((Date.now() - lastFetch.current) / 1000)), 1000)
-    return () => { clearInterval(refresh); clearInterval(ticker) }
+    return () => clearInterval(ticker)
   }, [fetchData])
+  useAutoRefresh(fetchData, REFRESH_MS)
 
   const violationTypes = ['all', ...new Set(data.map(r => r.violation_type).filter(Boolean))]
 

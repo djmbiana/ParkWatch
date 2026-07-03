@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useOutletContext, useNavigate } from 'react-router-dom'
 import { reports } from '../../services/api'
+import useAutoRefresh from '../../hooks/useAutoRefresh'
 import StatCard from '../../components/StatCard'
 import DataTable from '../../components/DataTable'
 import StatusBadge from '../../components/StatusBadge'
@@ -22,7 +23,7 @@ export default function BarangayDashboard() {
     setPageTitle('Dashboard')
   }, [setPageTitle])
 
-  useEffect(() => {
+  const fetchData = useCallback(() => (
     Promise.all([
       reports.barangayStats().catch(() => null),
       reports.barangayQueue().catch(() => null),
@@ -31,7 +32,10 @@ export default function BarangayDashboard() {
       const arr = Array.isArray(q) ? q : (q?.reports ?? [])
       setRecent(arr.slice(0, 5))
     }).finally(() => setLoading(false))
-  }, [])
+  ), [])
+
+  useEffect(() => { fetchData() }, [fetchData])
+  useAutoRefresh(fetchData, 15000)
 
   const columns = [
     { key: 'report_id', label: 'Report ID', render: (v) => <span className="mono" style={{ color: 'var(--color-text-muted)', fontSize: 12 }}>RPT-{v}</span> },

@@ -1,5 +1,5 @@
 import { useEffect } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, Link } from "react-router-dom"
 import { User, KeyRound } from "lucide-react"
 import { getStoredUser, getRoleHome } from "../utils/auth"
 
@@ -88,7 +88,8 @@ function Landing() {
           </a>
         </p>
         <p className="text-center text-xs text-gray-400 mt-2">
-          © 2026 ParkWatch. All rights reserved.
+          <Link to="/privacy" style={{ color: "#3DA044" }}>Privacy Notice</Link>
+          {" · "}© 2026 ParkWatch. All rights reserved.
         </p>
       </div>
     </div>

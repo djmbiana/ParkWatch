@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useNavigate } from "react-router-dom"
+import { useNavigate, Link } from "react-router-dom"
 import { ShieldCheck, Trash2 } from "lucide-react"
 import { citizenStore } from "../../services/api"
 import CitizenHeader from "../../components/citizen/CitizenHeader"
@@ -52,6 +52,9 @@ export default function Account() {
             <a href="mailto:ParkWatch.feedback@gmail.com" style={{ color: "var(--c-primary)", fontWeight: 600 }}>
               ParkWatch.feedback@gmail.com
             </a>
+          </p>
+          <p style={{ fontSize: 13, margin: "8px 0 0" }}>
+            <Link to="/privacy" style={{ color: "var(--c-primary)", fontWeight: 600 }}>Privacy Notice</Link>
           </p>
         </div>
 

@@ -7,6 +7,7 @@ import StatCard from '../../components/StatCard'
 import PlateBadge from '../../components/PlateBadge'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ViolationHeatMap from '../../components/ViolationHeatMap'
+import useAutoRefresh from '../../hooks/useAutoRefresh'
 
 function downloadCsv(filename, rows) {
   const csv = Papa.unparse(rows)
@@ -48,6 +49,7 @@ export default function SupervisorReports() {
   }
 
   useEffect(() => { fetchAll() }, [])
+  useAutoRefresh(fetchAll, 20000)
 
   const handleGenRepeat = async () => {
     setGenLoading('repeat')

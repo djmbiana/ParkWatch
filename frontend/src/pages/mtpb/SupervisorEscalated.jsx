@@ -7,8 +7,9 @@ import StatCard from '../../components/StatCard'
 import PlateBadge from '../../components/PlateBadge'
 import PenaltyTierBadge from '../../components/PenaltyTierBadge'
 import LoadingSpinner from '../../components/LoadingSpinner'
+import useAutoRefresh from '../../hooks/useAutoRefresh'
 
-const REFRESH_MS = 30000
+const REFRESH_MS = 15000
 
 function Elapsed({ escalatedAt }) {
   const [display, setDisplay] = useState('-')
@@ -66,10 +67,10 @@ export default function SupervisorEscalated() {
   useEffect(() => {
     fetchData()
     adminUsers.officers().then(setOfficers).catch(() => {})
-    const r = setInterval(fetchData, REFRESH_MS)
     const t = setInterval(() => setSecAgo(Math.floor((Date.now() - lastFetch.current) / 1000)), 1000)
-    return () => { clearInterval(r); clearInterval(t) }
+    return () => clearInterval(t)
   }, [fetchData])
+  useAutoRefresh(fetchData, REFRESH_MS)
 
   const openModal = (row) => {
     setModal(row)

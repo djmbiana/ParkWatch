@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { useOutletContext, useNavigate } from 'react-router-dom'
 import { reports } from '../../services/api'
+import useAutoRefresh from '../../hooks/useAutoRefresh'
 import StatCard from '../../components/StatCard'
 import StatusBadge from '../../components/StatusBadge'
 import PlateBadge from '../../components/PlateBadge'
@@ -15,7 +16,7 @@ export default function SupervisorDashboard() {
 
   useEffect(() => { setPageTitle('Overview') }, [setPageTitle])
 
-  useEffect(() => {
+  const fetchData = useCallback(() => (
     Promise.all([
       reports.analyticsSum().catch(() => null),
       // Escalated reports come from the SUPERVISOR queue — the officer queue
@@ -25,7 +26,10 @@ export default function SupervisorDashboard() {
       if (s) setStats(s)
       setEscalated((q?.reports ?? []).slice(0, 3))
     }).finally(() => setLoading(false))
-  }, [])
+  ), [])
+
+  useEffect(() => { fetchData() }, [fetchData])
+  useAutoRefresh(fetchData, 15000)
 
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 60 }}><LoadingSpinner size={28} /></div>
 

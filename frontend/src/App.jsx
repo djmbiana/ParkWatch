@@ -7,6 +7,7 @@ import { setApiHandlers } from "./services/api"
 import Landing from "./pages/Landing"
 import Login from "./pages/Login"
 import Register from "./pages/Register"
+import PrivacyNotice from "./pages/PrivacyNotice"
 import RoleRoute from "./components/RoleRoute"
 
 // Citizen app (public, anonymous - no auth per research paper p.118)
@@ -62,6 +63,7 @@ export default function App() {
         {/* Public */}
         <Route path="/login"    element={<Login />} />
         <Route path="/register" element={<Register />} />
+        <Route path="/privacy"  element={<PrivacyNotice />} />
 
         {/* Citizen - public, no auth guard (anonymous reporting) */}
         <Route path="/citizen" element={<CitizenLayout />}>
