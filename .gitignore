@@ -53,3 +53,9 @@ docker-compose.override.yml
 
 # ─── MySQL local data volume (if running without Docker) ──
 mysql_data/
+
+# ─── UAT survey drafts (not part of the codebase) ─────────
+UAT-SURVEY-QUESTIONS.md
+
+# ─── Thesis working docs (not part of the codebase) ──────
+THESIS-CONTEXT.md
