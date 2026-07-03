@@ -63,6 +63,42 @@ test.describe('Portal Smoke Tests', () => {
     await expect(page.getByText(/Updated.*ago/)).toBeVisible({ timeout: 10000 });
   });
 
+  test('TC-P-10: /privacy page is publicly accessible without authentication', async ({ page }) => {
+    await page.goto('/privacy');
+    await expect(page).not.toHaveURL(/login/);
+    // The notice must render actual content, not a blank or error page.
+    await expect(page.getByText(/Privacy Notice/i).first()).toBeVisible({ timeout: 8000 });
+  });
+
+  test('TC-P-11: Officer queue action button navigates to report detail (no inline modal)', async ({ page }) => {
+    await loginAs('officer', page, '/mtpb/officer/queue');
+    await page.waitForResponse((r) => r.url().includes('/queue/mtpb')).catch(() => {});
+    await page.waitForTimeout(1500);
+
+    // Filter to rows that contain an action button — skips the empty-state <tr>.
+    const actionableRows = page
+      .getByRole('table')
+      .locator('tbody tr')
+      .filter({ has: page.getByRole('button') });
+    const count = await actionableRows.count().catch(() => 0);
+    if (count === 0) {
+      test.skip(true, 'No actionable reports in MTPB queue; skipping navigation assertion.');
+      return;
+    }
+
+    await actionableRows.first().getByRole('button').click();
+
+    // Must land on the detail page — not stay on the queue with a modal.
+    await expect(page).toHaveURL(/\/mtpb\/officer\/reports\/\d+/, { timeout: 8000 });
+    // The queue title should no longer be visible (we navigated away).
+    await expect(titleInBanner(page, 'Enforcement Queue')).toHaveCount(0);
+  });
+
+  test('TC-P-12: Admin barangays page loads with Barangay Management title', async ({ page }) => {
+    await loginAs('admin', page, '/admin/barangays');
+    await expect(titleInBanner(page, 'Barangay Management')).toBeVisible({ timeout: 10000 });
+  });
+
   test('TC-P-09: A 401 from the API clears the session and redirects to /login', async ({ page }) => {
     // Start from a genuine, valid barangay session so RoleRoute lets the page
     // mount; then force the queue API to answer 401 (session-expired) to drive

@@ -90,4 +90,69 @@ test.describe('Security Checks', () => {
     expect(res.status()).toBe(422);
     await ctx.dispose();
   });
+
+  test('TC-SEC-08: POST /admin/barangays is blocked for non-admin roles (403)', async () => {
+    const ctx = await request.newContext();
+    // An MTPB officer must not be able to create a barangay.
+    const res = await ctx.post(`${API_URL}/api/admin/barangays`, {
+      headers: { Authorization: `Bearer ${await getToken('officer')}` },
+      data: { name: 'E2E Unauthorized Barangay' },
+    });
+    expect(res.status()).toBe(403);
+    await ctx.dispose();
+  });
+
+  test('TC-SEC-09: PATCH /admin/barangays/:id/location rejects invalid coordinates (422)', async () => {
+    const ctx = await request.newContext();
+    // Fetch the first barangay to get a valid ID.
+    const listRes = await ctx.get(`${API_URL}/api/admin/barangays`, {
+      headers: { Authorization: `Bearer ${await getToken('admin')}` },
+    });
+    const list = (await listRes.json()).data ?? [];
+    if (list.length === 0) {
+      await ctx.dispose();
+      test.skip(true, 'No barangays in DB to test location update.');
+      return;
+    }
+    const brgyId = list[0].barangay_id;
+
+    const res = await ctx.patch(`${API_URL}/api/admin/barangays/${brgyId}/location`, {
+      headers: { Authorization: `Bearer ${await getToken('admin')}` },
+      data: { latitude: 999, longitude: 999 }, // out-of-range coords
+    });
+    expect(res.status()).toBe(422);
+    await ctx.dispose();
+  });
+
+  test('TC-SEC-10: additional_photos with external URLs are silently dropped (not stored)', async () => {
+    const photoUrl = process.env.TEST_PLATE_IMAGE_URI;
+    test.skip(!photoUrl, 'Set TEST_PLATE_IMAGE_URI to run the additional_photos drop test.');
+
+    const ctx = await request.newContext();
+    // Submit a real report whose additional_photos contains a non-bucket URL.
+    const res = await ctx.post(`${API_URL}/api/reports`, {
+      data: {
+        photo_url: photoUrl,
+        street_id: 1,
+        violation_type: 'Parked on Sidewalk',
+        plate: 'TEST 9901',
+        additional_photos: ['https://evil.example.com/malware.jpg'],
+      },
+    });
+    // Request itself must succeed (external URLs are dropped, not 422-rejected).
+    expect([200, 201, 409]).toContain(res.status());
+    if (res.status() !== 409) {
+      const body = await res.json();
+      const reportId = body.data?.report_id;
+      if (reportId) {
+        // Verify the stored report has no additional_photos (external URL was dropped).
+        const detail = await ctx.get(`${API_URL}/api/reports/${reportId}`, {
+          headers: { Authorization: `Bearer ${await getToken('officer')}` },
+        });
+        const stored = (await detail.json()).data;
+        expect((stored.additional_photos ?? []).length).toBe(0);
+      }
+    }
+    await ctx.dispose();
+  });
 });

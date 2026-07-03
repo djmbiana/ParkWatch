@@ -63,6 +63,17 @@ async function reachStep2(page: Page) {
   await expect(page.getByText('OCR Extracted Plate')).toBeVisible();
 }
 
+// Drives the wizard all the way to Step 3 (Review & Submit).
+async function reachStep3(page: Page) {
+  await reachStep2(page);
+  await page.getByRole('button', { name: 'Select a street in Malate...' }).click();
+  await page.getByText('Test Street').click();
+  await page.getByRole('button', { name: 'Select violation type...' }).click();
+  await page.getByText('Parked on Sidewalk').click();
+  await page.getByRole('button', { name: /Next/ }).click();
+  await expect(page.getByText('Additional Photos')).toBeVisible({ timeout: 5000 });
+}
+
 test.describe('SO1 — Citizen Report Submission', () => {
   // TC-SO1-01: Home screen loads without login.
   test('TC-SO1-01: /citizen loads publicly without authentication', async ({ page }) => {
@@ -223,5 +234,73 @@ test.describe('SO1 — Citizen Report Submission', () => {
     await page.goto('/citizen/report');
     await page.goto('/citizen/reports');
     expect(dialogFired).toBe(false);
+  });
+
+  // TC-SO1-15: Step 2 shows the partnered-barangay disclaimer (new).
+  test('TC-SO1-15: Step 2 shows partnered-barangay disclaimer', async ({ page }) => {
+    await mockCitizenApi(page);
+    await reachStep2(page);
+    await expect(
+      page.getByText(/Only streets in barangays partnered with ParkWatch/),
+    ).toBeVisible();
+  });
+
+  // TC-SO1-16: Step 3 renders the "Additional Photos" section with an Add button.
+  test('TC-SO1-16: Step 3 shows Additional Photos section with Add button', async ({ page }) => {
+    await mockCitizenApi(page);
+    await reachStep3(page);
+    await expect(page.getByText('Additional Photos')).toBeVisible();
+    // "Add" button is shown while under the 5-photo cap.
+    await expect(page.getByRole('button', { name: /Add/i })).toBeVisible();
+  });
+
+  // TC-SO1-17: Oversized extra photo in Step 3 shows inline error, photo not added.
+  test('TC-SO1-17: Oversized extra photo shows inline error in Step 3', async ({ page }) => {
+    await mockCitizenApi(page);
+    await reachStep3(page);
+    // The only file input in the DOM on Step 3 is the hidden extraInputRef.
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'big.jpg',
+      mimeType: 'image/jpeg',
+      buffer: Buffer.alloc(11 * 1024 * 1024, 1),
+    });
+    await expect(page.getByText(/10MB/)).toBeVisible();
+    // No thumbnail should have been added.
+    await expect(page.locator('img[alt="Extra 1"]')).toHaveCount(0);
+  });
+
+  // TC-SO1-18: Step 3 shows consent "Privacy Notice" link above Submit.
+  test('TC-SO1-18: Step 3 shows Privacy Notice consent line', async ({ page }) => {
+    await mockCitizenApi(page);
+    await reachStep3(page);
+    await expect(page.getByText(/By submitting.*Privacy Notice/)).toBeVisible();
+    await expect(page.locator('a[href="/privacy"]')).toBeVisible();
+  });
+
+  // TC-SO1-19: An added extra photo is included in the submit POST body.
+  test('TC-SO1-19: Additional photo URL sent in submit request body', async ({ page }) => {
+    await mockCitizenApi(page);
+    await reachStep3(page);
+
+    // Upload one extra photo via the hidden file input (mocked upload returns a GCS URL).
+    await page.locator('input[type="file"]').setInputFiles({
+      name: 'extra.jpg',
+      mimeType: 'image/jpeg',
+      buffer: SMALL_JPEG,
+    });
+    // Thumbnail confirms the upload (mock) resolved.
+    await expect(page.locator('img[alt="Extra 1"]')).toBeVisible({ timeout: 5000 });
+
+    // Capture the submit request body before it fires.
+    const submitReq = page.waitForRequest(
+      (r) => /\/api\/reports(\?|$)/.test(r.url()) && r.method() === 'POST',
+    );
+    await page.getByRole('button', { name: /Submit Report/ }).click();
+    await page.getByRole('button', { name: 'Yes, Submit' }).click();
+
+    const req = await submitReq;
+    const body = JSON.parse(req.postData() ?? '{}');
+    expect(Array.isArray(body.additional_photos)).toBe(true);
+    expect(body.additional_photos.length).toBeGreaterThanOrEqual(1);
   });
 });
