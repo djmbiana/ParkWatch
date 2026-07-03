@@ -6,6 +6,7 @@ import { useToast } from '../../components/ToastContext'
 import StatCard from '../../components/StatCard'
 import ConfirmModal from '../../components/ConfirmModal'
 import LoadingSpinner from '../../components/LoadingSpinner'
+import useMediaQuery from '../../hooks/useMediaQuery'
 
 const ROLE_LABELS = {
   citizen: 'Citizen',
@@ -43,6 +44,7 @@ const BLANK_FORM = { first_name: '', last_name: '', email: '', role: 'brgy_offic
 export default function AdminUsers() {
   const { setPageTitle } = useOutletContext()
   const toast = useToast()
+  const isMobile = useMediaQuery('(max-width: 767px)')
   const [users, setUsers] = useState([])
   const [barangays, setBarangays] = useState([])
   const [loading, setLoading] = useState(true)
@@ -187,7 +189,23 @@ export default function AdminUsers() {
 
         {loading ? (
           <div style={{ padding: 48, textAlign: 'center' }}><LoadingSpinner size={28} /></div>
+        ) : filtered.length === 0 ? (
+          <div style={{ padding: '48px 12px', textAlign: 'center', fontSize: 13, color: 'var(--color-text-muted)' }}>No users found</div>
+        ) : isMobile ? (
+          /* --- Mobile: stacked cards (no horizontal scrolling) --- */
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12 }}>
+            {filtered.map(u => (
+              <UserCard
+                key={u.user_id}
+                u={u}
+                onEdit={openEdit}
+                onDeactivate={setDeactivateTarget}
+                onReactivate={handleReactivate}
+              />
+            ))}
+          </div>
         ) : (
+          /* --- Desktop: table --- */
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '2px solid var(--color-border-strong)' }}>
@@ -197,9 +215,7 @@ export default function AdminUsers() {
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
-                <tr><td colSpan={7} style={{ padding: '48px 12px', textAlign: 'center', fontSize: 13, color: 'var(--color-text-muted)' }}>No users found</td></tr>
-              ) : filtered.map(u => (
+              {filtered.map(u => (
                 <tr key={u.user_id} style={{ borderBottom: '1px solid var(--color-border)', height: 48 }}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--color-bg)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
@@ -370,4 +386,48 @@ function FormField({ label, name, type = 'text', required, form, setForm, formEr
 
 function actionBtn(bg) {
   return { padding: '4px 14px', borderRadius: 6, background: bg, color: '#fff', border: 'none', fontSize: 12, fontWeight: 500, cursor: 'pointer', height: 28 }
+}
+
+// Mobile card: one user per card, all fields stacked with labels. Reuses the
+// same RoleBadge / StatusPill / action logic as the desktop table so behaviour
+// and styling stay in sync.
+function UserCard({ u, onEdit, onDeactivate, onReactivate }) {
+  const barangayOrBadge =
+    u.role === 'brgy_official' ? (u.barangay_name ?? '-')
+    : u.role === 'mtpb_officer' || u.role === 'mtpb_supervisor' ? `Badge #${u.badge_number ?? u.employee_id ?? '-'}`
+    : '-'
+  const created = u.created_at
+    ? new Date(u.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric', year: 'numeric' })
+    : '-'
+
+  const Row = ({ label, children }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, minHeight: 24 }}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>{label}</span>
+      <span style={{ fontSize: 13, color: 'var(--color-text-secondary)', textAlign: 'right', wordBreak: 'break-word' }}>{children}</span>
+    </div>
+  )
+
+  return (
+    <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+        <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-primary)' }}>{u.first_name} {u.last_name}</span>
+        <RoleBadge role={u.role} />
+      </div>
+
+      <Row label="Email">{u.email}</Row>
+      <Row label="Barangay / Badge">{barangayOrBadge}</Row>
+      <Row label="Status"><StatusPill user={u} /></Row>
+      <Row label="Created">{created}</Row>
+
+      <div style={{ marginTop: 4 }}>
+        {u.role !== 'citizen' && u.is_active ? (
+          <button onClick={() => onEdit(u)} style={{ ...actionBtn('#0F1117'), width: '100%', height: 36, fontSize: 13 }}>Edit</button>
+        ) : u.is_active ? (
+          <button onClick={() => onDeactivate(u)} style={{ ...actionBtn('#EF4444'), width: '100%', height: 36, fontSize: 13 }}>Deactivate</button>
+        ) : (
+          <button onClick={() => onReactivate(u)} style={{ ...actionBtn('#10B981'), width: '100%', height: 36, fontSize: 13 }}>Reactivate</button>
+        )}
+      </div>
+    </div>
+  )
 }

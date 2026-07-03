@@ -8,10 +8,12 @@ import RepeatOffenderBadge from '../../components/RepeatOffenderBadge'
 import StatusBadge from '../../components/StatusBadge'
 import PenaltyTierBadge from '../../components/PenaltyTierBadge'
 import LoadingSpinner from '../../components/LoadingSpinner'
+import useMediaQuery from '../../hooks/useMediaQuery'
 
 export default function BarangayPlateSearch() {
   const { setPageTitle } = useOutletContext()
   const toast = useToast()
+  const isMobile = useMediaQuery('(max-width: 767px)')
   const [query, setQuery] = useState('')
   const [result, setResult] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -115,7 +117,7 @@ export default function BarangayPlateSearch() {
             {result.vehicle?.is_repeat_offender && <RepeatOffenderBadge />}
           </div>
 
-          {/* History table */}
+          {/* History table (desktop) / cards (mobile) */}
           <div style={{
             background: 'var(--color-surface)',
             border: '1px solid var(--color-border)',
@@ -123,33 +125,56 @@ export default function BarangayPlateSearch() {
             boxShadow: 'var(--shadow-sm)',
             overflow: 'hidden',
           }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr style={{ borderBottom: '2px solid var(--color-border-strong)' }}>
-                  {['Date', 'Barangay', 'Street', 'Violation Type', 'Status', 'Penalty Tier'].map(h => (
-                    <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{h}</th>
+            {result.history?.length === 0 ? (
+              <div style={{ padding: '32px 12px', textAlign: 'center', fontSize: 13, color: 'var(--color-text-muted)' }}>
+                No violation records found
+              </div>
+            ) : isMobile ? (
+              /* Mobile: stacked cards */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12 }}>
+                {result.history?.map(h => {
+                  const Row = ({ label, children }) => (
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, minHeight: 24 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>{label}</span>
+                      <span style={{ fontSize: 13, color: 'var(--color-text-primary)', textAlign: 'right', wordBreak: 'break-word' }}>{children}</span>
+                    </div>
+                  )
+                  return (
+                    <div key={h.report_id} style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+                      <Row label="Date">{h.submitted_at ? new Date(h.submitted_at).toLocaleDateString('en-PH') : '-'}</Row>
+                      <Row label="Barangay">{h.barangay_name ?? '-'}</Row>
+                      <Row label="Street">{h.street_name ?? '-'}</Row>
+                      <Row label="Violation Type">{h.violation_type ?? '-'}</Row>
+                      <Row label="Status"><StatusBadge status={h.status} /></Row>
+                      <Row label="Penalty Tier"><PenaltyTierBadge tier_name={h.penalty_tier?.tier_name} /></Row>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              /* Desktop: table */
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ borderBottom: '2px solid var(--color-border-strong)' }}>
+                    {['Date', 'Barangay', 'Street', 'Violation Type', 'Status', 'Penalty Tier'].map(h => (
+                      <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {result.history?.map(h => (
+                    <tr key={h.report_id} style={{ borderBottom: '1px solid var(--color-border)', height: 48 }}>
+                      <td style={{ padding: '0 12px', fontSize: 13 }}>{h.submitted_at ? new Date(h.submitted_at).toLocaleDateString('en-PH') : '-'}</td>
+                      <td style={{ padding: '0 12px', fontSize: 13 }}>{h.barangay_name ?? '-'}</td>
+                      <td style={{ padding: '0 12px', fontSize: 13 }}>{h.street_name ?? '-'}</td>
+                      <td style={{ padding: '0 12px', fontSize: 13 }}>{h.violation_type ?? '-'}</td>
+                      <td style={{ padding: '0 12px' }}><StatusBadge status={h.status} /></td>
+                      <td style={{ padding: '0 12px' }}><PenaltyTierBadge tier_name={h.penalty_tier?.tier_name} /></td>
+                    </tr>
                   ))}
-                </tr>
-              </thead>
-              <tbody>
-                {result.history?.length === 0 ? (
-                  <tr>
-                    <td colSpan={6} style={{ padding: '32px 12px', textAlign: 'center', fontSize: 13, color: 'var(--color-text-muted)' }}>
-                      No violation records found
-                    </td>
-                  </tr>
-                ) : result.history?.map(h => (
-                  <tr key={h.report_id} style={{ borderBottom: '1px solid var(--color-border)', height: 48 }}>
-                    <td style={{ padding: '0 12px', fontSize: 13 }}>{h.submitted_at ? new Date(h.submitted_at).toLocaleDateString('en-PH') : '-'}</td>
-                    <td style={{ padding: '0 12px', fontSize: 13 }}>{h.barangay_name ?? '-'}</td>
-                    <td style={{ padding: '0 12px', fontSize: 13 }}>{h.street_name ?? '-'}</td>
-                    <td style={{ padding: '0 12px', fontSize: 13 }}>{h.violation_type ?? '-'}</td>
-                    <td style={{ padding: '0 12px' }}><StatusBadge status={h.status} /></td>
-                    <td style={{ padding: '0 12px' }}><PenaltyTierBadge tier_name={h.penalty_tier?.tier_name} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}
