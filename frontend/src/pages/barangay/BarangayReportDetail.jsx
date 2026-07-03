@@ -120,9 +120,9 @@ export default function BarangayReportDetail() {
         {report.vehicle?.is_repeat_offender && <RepeatOffenderBadge />}
       </div>
 
-      <div style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
+      <div className="portal-split" style={{ display: 'flex', gap: 20, alignItems: 'flex-start' }}>
         {/* LEFT */}
-        <div style={{ flex: '0 0 55%', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="portal-col" style={{ flex: '0 0 55%', display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div style={{
             background: 'var(--color-surface)',
             border: '1px solid var(--color-border)',
@@ -190,7 +190,7 @@ export default function BarangayReportDetail() {
         </div>
 
         {/* RIGHT */}
-        <div style={{ flex: '0 0 45%', display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <div className="portal-col" style={{ flex: '0 0 45%', display: 'flex', flexDirection: 'column', gap: 16 }}>
           {/* Report Details */}
           <div style={{
             background: 'var(--color-surface)',

@@ -101,9 +101,9 @@ export default function OfficerReportDetail() {
         {report.vehicle?.is_repeat_offender && <RepeatOffenderBadge />}
       </div>
 
-      <div style={{ display: 'flex', gap: 20 }}>
+      <div className="portal-split" style={{ display: 'flex', gap: 20 }}>
         {/* Left */}
-        <div style={{ flex: '0 0 50%' }}>
+        <div className="portal-col" style={{ flex: '0 0 50%' }}>
           <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', padding: 20 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
               <PlateBadge plate={report.vehicle?.plate_number} large />
@@ -138,7 +138,7 @@ export default function OfficerReportDetail() {
         </div>
 
         {/* Right */}
-        <div style={{ flex: '0 0 50%' }}>
+        <div className="portal-col" style={{ flex: '0 0 50%' }}>
           <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', padding: 20, marginBottom: 16 }}>
             <SectionHeader>Cross-Barangay Violation History</SectionHeader>
             {history.length === 0 ? (

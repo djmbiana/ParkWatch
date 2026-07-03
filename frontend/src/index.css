@@ -162,3 +162,51 @@ body {
 .toast-animate {
   animation: toast-in 200ms ease-out;
 }
+
+/* ─── Mobile / small-screen support for the staff portals ─────────────────
+   The portals use inline styles, so these rules use !important to override
+   them only at phone/tablet widths. Covers the two things that break on a
+   narrow screen: wide data tables and fixed-height/edge padding. The sidebar
+   itself becomes a slide-in drawer (handled in PortalLayout.jsx). */
+@media (max-width: 768px) {
+  /* Data tables (queues, admin lists) scroll sideways instead of overflowing
+     the screen. Making the table a block gives it its own horizontal scroll
+     while cells keep their table layout. */
+  main table {
+    display: block !important;
+    overflow-x: auto !important;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Give tabular text a sensible minimum so columns don't crush together. */
+  main table th,
+  main table td {
+    white-space: nowrap;
+  }
+
+  /* Stat-card rows and toolbars: let anything laid out in a row wrap. */
+  .portal-row-wrap {
+    flex-wrap: wrap !important;
+  }
+
+  /* Two-column detail / master-detail pages stack vertically on mobile.
+     .portal-split marks the flex row; .portal-col marks each column (its
+     inline flex-basis is overridden to full width so it wraps). */
+  main .portal-split {
+    flex-wrap: wrap !important;
+    height: auto !important;
+    overflow: visible !important;
+  }
+  main .portal-col {
+    flex-basis: 100% !important;
+  }
+}
+
+/* Very small phones: tighten card padding a touch. */
+@media (max-width: 480px) {
+  .modal-animate {
+    width: 94vw !important;
+    max-width: 94vw !important;
+  }
+}

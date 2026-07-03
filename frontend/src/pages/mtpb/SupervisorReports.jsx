@@ -101,7 +101,7 @@ export default function SupervisorReports() {
       </div>
 
       {/* Report cards */}
-      <div style={{ display: 'flex', gap: 16, marginBottom: 24 }}>
+      <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
         {/* Repeat Offender */}
         <div style={{ flex: 1, background: '#0F1117', borderRadius: 'var(--radius-lg)', padding: 24, color: '#fff' }}>
           <div style={{ fontSize: 14, fontWeight: 600, color: '#E5E7EB', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.05em' }}>

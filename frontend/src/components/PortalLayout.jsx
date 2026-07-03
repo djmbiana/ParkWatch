@@ -1,12 +1,31 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
-import { LogOut } from 'lucide-react'
+import { LogOut, Menu, X } from 'lucide-react'
 import { clearAuth, getStoredUser } from '../utils/auth'
+
+// Tracks whether the viewport is phone/tablet width so the sidebar can switch
+// between a fixed rail (desktop) and a slide-in drawer (mobile).
+function useIsMobile(breakpoint = 768) {
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== 'undefined' ? window.innerWidth <= breakpoint : false
+  )
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= breakpoint)
+    window.addEventListener('resize', onResize)
+    return () => window.removeEventListener('resize', onResize)
+  }, [breakpoint])
+  return isMobile
+}
 
 export default function PortalLayout({ portalClass, logo, roleLabel, navItems, children, pageTitle }) {
   const navigate = useNavigate()
   const user = getStoredUser()
   const [hoveredLogout, setHoveredLogout] = useState(false)
+  const isMobile = useIsMobile()
+  const [drawerOpen, setDrawerOpen] = useState(false)
+
+  // Close the drawer whenever we grow back to desktop, so it never gets stuck open.
+  useEffect(() => { if (!isMobile) setDrawerOpen(false) }, [isMobile])
 
   const handleLogout = () => {
     clearAuth()
@@ -19,26 +38,59 @@ export default function PortalLayout({ portalClass, logo, roleLabel, navItems, c
 
   const displayName = user ? `${user.first_name ?? ''} ${user.last_name ?? ''}`.trim() : 'User'
 
+  // On mobile the sidebar is an off-canvas drawer that slides over the content.
+  const asideStyle = {
+    width: 'var(--sidebar-width)',
+    background: 'var(--sidebar-bg)',
+    display: 'flex',
+    flexDirection: 'column',
+    flexShrink: 0,
+    height: '100vh',
+    overflow: 'hidden',
+    ...(isMobile
+      ? {
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          zIndex: 1100,
+          transform: drawerOpen ? 'translateX(0)' : 'translateX(-100%)',
+          transition: 'transform 0.22s ease',
+          boxShadow: drawerOpen ? '2px 0 16px rgba(0,0,0,0.35)' : 'none',
+        }
+      : {}),
+  }
+
   return (
     <div className={portalClass} style={{ display: 'flex', height: '100vh', overflow: 'hidden', background: 'var(--color-bg)' }}>
+      {/* Dimmed overlay behind the drawer (mobile only) */}
+      {isMobile && drawerOpen && (
+        <div
+          onClick={() => setDrawerOpen(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 1050 }}
+        />
+      )}
+
       {/* Sidebar */}
-      <aside style={{
-        width: 'var(--sidebar-width)',
-        background: 'var(--sidebar-bg)',
-        display: 'flex',
-        flexDirection: 'column',
-        flexShrink: 0,
-        height: '100vh',
-        overflow: 'hidden',
-      }}>
+      <aside style={asideStyle}>
         {/* Logo */}
-        <div style={{ padding: '20px 16px 16px' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#FFFFFF', marginBottom: 2 }}>
-            {logo}
+        <div style={{ padding: '20px 16px 16px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: '#FFFFFF', marginBottom: 2 }}>
+              {logo}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--sidebar-text)', lineHeight: 1.4 }}>
+              {roleLabel}
+            </div>
           </div>
-          <div style={{ fontSize: 11, color: 'var(--sidebar-text)', lineHeight: 1.4 }}>
-            {roleLabel}
-          </div>
+          {isMobile && (
+            <button
+              onClick={() => setDrawerOpen(false)}
+              aria-label="Close menu"
+              style={{ background: 'transparent', border: 'none', color: 'var(--sidebar-text)', cursor: 'pointer', padding: 4 }}
+            >
+              <X size={18} />
+            </button>
+          )}
         </div>
 
         <div style={{ width: '100%', height: 1, background: 'rgba(255,255,255,0.06)', margin: '0 0 8px' }} />
@@ -55,12 +107,13 @@ export default function PortalLayout({ portalClass, logo, roleLabel, navItems, c
                 key={item.to}
                 to={item.to}
                 end={item.end}
+                onClick={() => setDrawerOpen(false)}
                 style={({ isActive }) => ({
                   display: 'flex',
                   alignItems: 'center',
                   gap: 10,
                   padding: '0 16px',
-                  height: 36,
+                  height: 40,
                   fontSize: 13,
                   fontWeight: 500,
                   color: isActive ? 'var(--sidebar-text-active)' : 'var(--sidebar-text)',
@@ -105,7 +158,7 @@ export default function PortalLayout({ portalClass, logo, roleLabel, navItems, c
               alignItems: 'center',
               gap: 10,
               padding: '0 16px',
-              height: 36,
+              height: 40,
               width: '100%',
               fontSize: 13,
               fontWeight: 500,
@@ -133,11 +186,32 @@ export default function PortalLayout({ portalClass, logo, roleLabel, navItems, c
           borderBottom: '1px solid var(--color-border)',
           display: 'flex',
           alignItems: 'center',
-          padding: '0 24px',
-          gap: 16,
+          padding: isMobile ? '0 14px' : '0 24px',
+          gap: 12,
           flexShrink: 0,
         }}>
-          <span style={{ flex: 1, fontSize: 20, fontWeight: 600, color: 'var(--color-text-primary)' }}>
+          {isMobile && (
+            <button
+              onClick={() => setDrawerOpen(true)}
+              aria-label="Open menu"
+              style={{
+                background: 'transparent', border: 'none', cursor: 'pointer',
+                color: 'var(--color-text-primary)', display: 'flex', alignItems: 'center',
+                padding: 4, marginLeft: -4,
+              }}
+            >
+              <Menu size={22} />
+            </button>
+          )}
+          <span style={{
+            flex: 1,
+            fontSize: isMobile ? 16 : 20,
+            fontWeight: 600,
+            color: 'var(--color-text-primary)',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}>
             {pageTitle}
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -151,14 +225,16 @@ export default function PortalLayout({ portalClass, logo, roleLabel, navItems, c
             }}>
               {initials}
             </div>
-            <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-secondary)' }}>
-              {displayName}
-            </span>
+            {!isMobile && (
+              <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-secondary)' }}>
+                {displayName}
+              </span>
+            )}
           </div>
         </header>
 
         {/* Page content */}
-        <main style={{ flex: 1, overflowY: 'auto', padding: 24 }}>
+        <main style={{ flex: 1, overflowY: 'auto', padding: isMobile ? 14 : 24 }}>
           {children}
         </main>
       </div>

@@ -81,7 +81,13 @@ function Landing() {
           />
         </div>
 
-        <p className="text-center text-xs text-gray-400 mt-10">
+        <p className="text-center text-xs text-gray-500 mt-10">
+          Bugs or questions?{" "}
+          <a href="mailto:ParkWatch.feedback@gmail.com" className="font-medium" style={{ color: "#3DA044" }}>
+            ParkWatch.feedback@gmail.com
+          </a>
+        </p>
+        <p className="text-center text-xs text-gray-400 mt-2">
           © 2026 ParkWatch. All rights reserved.
         </p>
       </div>

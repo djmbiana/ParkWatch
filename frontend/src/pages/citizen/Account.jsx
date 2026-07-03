@@ -44,6 +44,17 @@ export default function Account() {
           </p>
         </div>
 
+        {/* Help & feedback */}
+        <div style={{ marginTop: 16, background: "var(--c-surface)", border: "1px solid var(--c-border)", borderRadius: 12, padding: 16 }}>
+          <p style={{ fontSize: 14, fontWeight: 600, color: "var(--c-text)", margin: 0 }}>Help & Feedback</p>
+          <p style={{ fontSize: 13, color: "var(--c-muted)", margin: "6px 0 0", lineHeight: 1.5 }}>
+            Found a bug or have a question? Email us at{" "}
+            <a href="mailto:ParkWatch.feedback@gmail.com" style={{ color: "var(--c-primary)", fontWeight: 600 }}>
+              ParkWatch.feedback@gmail.com
+            </a>
+          </p>
+        </div>
+
         {/* Clear data */}
         <button
           type="button"

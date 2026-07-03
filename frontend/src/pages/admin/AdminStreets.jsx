@@ -96,9 +96,9 @@ export default function AdminStreets() {
   }
 
   return (
-    <div style={{ display: 'flex', gap: 16, height: 'calc(100vh - 56px - 48px)', overflow: 'hidden' }}>
+    <div className="portal-split" style={{ display: 'flex', gap: 16, height: 'calc(100vh - 56px - 48px)', overflow: 'hidden' }}>
       {/* Left panel */}
-      <div style={{ flex: '0 0 38%', display: 'flex', flexDirection: 'column', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
+      <div className="portal-col" style={{ flex: '0 0 38%', display: 'flex', flexDirection: 'column', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
         <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--color-border)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <div style={{ position: 'relative', flex: 1 }}>
             <Search size={13} style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
@@ -156,7 +156,7 @@ export default function AdminStreets() {
       </div>
 
       {/* Right panel */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
+      <div className="portal-col" style={{ flex: 1, display: 'flex', flexDirection: 'column', background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
         {!selected ? (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', flexDirection: 'column', gap: 8 }}>
             <div style={{ fontSize: 14, color: 'var(--color-text-muted)' }}>Select a street to manage its parking rules</div>
