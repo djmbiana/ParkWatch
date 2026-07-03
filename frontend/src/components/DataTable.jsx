@@ -1,10 +1,12 @@
 import { useState } from 'react'
 import { ChevronUp, ChevronDown } from 'lucide-react'
 import LoadingSpinner from './LoadingSpinner'
+import useMediaQuery from '../hooks/useMediaQuery'
 
 export default function DataTable({ columns, data, onRowClick, loading, emptyMessage }) {
   const [sortKey, setSortKey] = useState(null)
   const [sortDir, setSortDir] = useState('asc')
+  const isMobile = useMediaQuery('(max-width: 767px)')
 
   const handleSort = (key) => {
     if (sortKey === key) {
@@ -30,6 +32,59 @@ export default function DataTable({ columns, data, onRowClick, loading, emptyMes
       <div style={{ padding: '40px 0', textAlign: 'center' }}>
         <LoadingSpinner />
         <div style={{ marginTop: 8, fontSize: 13, color: 'var(--color-text-muted)' }}>Loading…</div>
+      </div>
+    )
+  }
+
+  // --- Mobile: each row becomes a stacked card (no horizontal scrolling) ---
+  // Reuses every column's label + render, so badges/actions match the table.
+  if (isMobile) {
+    if (rows.length === 0) {
+      return (
+        <div style={{ padding: '48px 12px', textAlign: 'center', fontSize: 13, color: 'var(--color-text-muted)' }}>
+          {emptyMessage ?? 'No data found'}
+        </div>
+      )
+    }
+    // Separate the "action" column (rendered full-width at the bottom of the card)
+    // from the data columns (rendered as label/value rows).
+    const actionCol = columns.find(c => c.key === 'action')
+    const dataCols = columns.filter(c => c.key !== 'action')
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, padding: 12 }}>
+        {rows.map((row, i) => (
+          <div
+            key={row.id ?? row.report_id ?? row.user_id ?? row.barangay_id ?? i}
+            onClick={onRowClick ? () => onRowClick(row) : undefined}
+            style={{
+              border: '1px solid var(--color-border)',
+              borderLeft: row._rowBorderLeft ?? '1px solid var(--color-border)',
+              borderRadius: 'var(--radius-md)',
+              background: row._rowBg ?? 'var(--color-surface)',
+              padding: 14,
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 8,
+              cursor: onRowClick ? 'pointer' : 'default',
+            }}
+          >
+            {dataCols.map(col => (
+              <div key={col.key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, minHeight: 24 }}>
+                <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0 }}>
+                  {col.label}
+                </span>
+                <span style={{ fontSize: 13, color: 'var(--color-text-primary)', textAlign: 'right', wordBreak: 'break-word' }}>
+                  {col.render ? col.render(row[col.key], row) : (row[col.key] ?? '-')}
+                </span>
+              </div>
+            ))}
+            {actionCol && (
+              <div style={{ marginTop: 4 }} onClick={e => e.stopPropagation()}>
+                {actionCol.render ? actionCol.render(row[actionCol.key], row) : null}
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     )
   }
