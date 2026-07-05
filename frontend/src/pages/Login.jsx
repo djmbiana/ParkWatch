@@ -2,6 +2,7 @@ import { useState } from "react"
 import { useNavigate, Link } from "react-router-dom"
 import { auth } from "../services/api"
 import { getRoleHome } from "../utils/auth"
+import { usePermissions } from "../contexts/PermissionsContext"
 
 function Login() {
   const [email, setEmail] = useState("")
@@ -9,6 +10,7 @@ function Login() {
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const { reload } = usePermissions()
 
   const handleLogin = async (e) => {
     e.preventDefault()
@@ -18,6 +20,7 @@ function Login() {
       const data = await auth.login(email, password)
       localStorage.setItem("parkwatch_token", data.token)
       localStorage.setItem("parkwatch_user", JSON.stringify(data.user))
+      await reload()
       navigate(getRoleHome(data.user.role), { replace: true })
     } catch (err) {
       setError(err.message || "Invalid email or password.")

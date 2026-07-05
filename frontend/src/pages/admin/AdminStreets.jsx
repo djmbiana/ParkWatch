@@ -3,6 +3,7 @@ import { useOutletContext } from 'react-router-dom'
 import { Search, Plus } from 'lucide-react'
 import { adminStreets, adminBarangays } from '../../services/api'
 import { useToast } from '../../components/ToastContext'
+import { usePermissions } from '../../contexts/PermissionsContext'
 import LoadingSpinner from '../../components/LoadingSpinner'
 
 const COMMON_VIOLATIONS = [
@@ -18,6 +19,9 @@ const COMMON_VIOLATIONS = [
 export default function AdminStreets() {
   const { setPageTitle } = useOutletContext()
   const toast = useToast()
+  const { hasPermission } = usePermissions()
+  const canCreate = hasPermission('streets_rules', 'manage', 'create')
+  const canUpdate = hasPermission('streets_rules', 'manage', 'update')
   const [streets, setStreets] = useState([])
   const [barangays, setBarangays] = useState([])
   const [selected, setSelected] = useState(null)
@@ -105,10 +109,12 @@ export default function AdminStreets() {
             <input value={streetSearch} onChange={e => setStreetSearch(e.target.value)} placeholder="Search streets…"
               style={{ width: '100%', padding: '6px 8px 6px 26px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 12, background: 'var(--color-bg)' }} />
           </div>
-          <button onClick={() => setShowAddStreet(v => !v)}
-            style={{ padding: '6px 10px', borderRadius: 6, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
-            <Plus size={13} /> Add
-          </button>
+          {canCreate && (
+            <button onClick={() => setShowAddStreet(v => !v)}
+              style={{ padding: '6px 10px', borderRadius: 6, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Plus size={13} /> Add
+            </button>
+          )}
         </div>
 
         {showAddStreet && (
@@ -185,27 +191,34 @@ export default function AdminStreets() {
                     <tr key={rule.rule_id} style={{ borderBottom: '1px solid var(--color-border)', height: 48 }}>
                       <td style={{ padding: '0 20px', fontSize: 13 }}>{rule.violation_type}</td>
                       <td style={{ padding: '0 20px' }}>
-                        {/* Toggle switch */}
-                        <button onClick={() => handleToggleRule(rule)} disabled={toggleLoading[rule.rule_id]}
-                          style={{
-                            width: 40, height: 22, borderRadius: 999, border: 'none', cursor: 'pointer',
-                            background: rule.is_active ? '#10B981' : '#D1D5DB',
-                            position: 'relative', transition: 'background 0.2s',
-                            opacity: toggleLoading[rule.rule_id] ? 0.6 : 1,
-                          }}>
-                          <span style={{
-                            position: 'absolute', top: 3,
-                            left: rule.is_active ? 20 : 3,
-                            width: 16, height: 16, borderRadius: '50%',
-                            background: '#fff', transition: 'left 0.2s',
-                          }} />
-                        </button>
+                        {canUpdate ? (
+                          <button onClick={() => handleToggleRule(rule)} disabled={toggleLoading[rule.rule_id]}
+                            style={{
+                              width: 40, height: 22, borderRadius: 999, border: 'none', cursor: 'pointer',
+                              background: rule.is_active ? '#10B981' : '#D1D5DB',
+                              position: 'relative', transition: 'background 0.2s',
+                              opacity: toggleLoading[rule.rule_id] ? 0.6 : 1,
+                            }}>
+                            <span style={{
+                              position: 'absolute', top: 3,
+                              left: rule.is_active ? 20 : 3,
+                              width: 16, height: 16, borderRadius: '50%',
+                              background: '#fff', transition: 'left 0.2s',
+                            }} />
+                          </button>
+                        ) : (
+                          <span style={{ fontSize: 11, fontWeight: 600, color: rule.is_active ? '#059669' : '#DC2626' }}>
+                            {rule.is_active ? 'Active' : 'Inactive'}
+                          </span>
+                        )}
                       </td>
                       <td style={{ padding: '0 20px' }}>
-                        <button onClick={() => handleToggleRule(rule)}
-                          style={{ background: 'none', border: 'none', color: '#EF4444', fontSize: 13, cursor: 'pointer', fontWeight: 500 }}>
-                          {rule.is_active ? 'Disable' : 'Enable'}
-                        </button>
+                        {canUpdate && (
+                          <button onClick={() => handleToggleRule(rule)}
+                            style={{ background: 'none', border: 'none', color: '#EF4444', fontSize: 13, cursor: 'pointer', fontWeight: 500 }}>
+                            {rule.is_active ? 'Disable' : 'Enable'}
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -213,19 +226,21 @@ export default function AdminStreets() {
               </table>
 
               {/* Add rule */}
-              <div style={{ padding: '16px 20px', borderTop: '1px solid var(--color-border)', display: 'flex', gap: 8, alignItems: 'center' }}>
-                <select value={newViolation} onChange={e => setNewViolation(e.target.value)}
-                  style={{ flex: 1, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-bg)' }}>
-                  <option value="">- Select violation type -</option>
-                  {COMMON_VIOLATIONS.map(v => <option key={v} value={v}>{v}</option>)}
-                </select>
-                <input value={newViolation} onChange={e => setNewViolation(e.target.value)} placeholder="Or type custom…"
-                  style={{ flex: 1, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-bg)' }} />
-                <button onClick={handleAddRule} disabled={addRuleLoading || !newViolation.trim()}
-                  style={{ padding: '8px 16px', borderRadius: 6, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: (!newViolation.trim() || addRuleLoading) ? 0.6 : 1 }}>
-                  {addRuleLoading && <LoadingSpinner size={13} color="#fff" />} Add Rule
-                </button>
-              </div>
+              {canCreate && (
+                <div style={{ padding: '16px 20px', borderTop: '1px solid var(--color-border)', display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <select value={newViolation} onChange={e => setNewViolation(e.target.value)}
+                    style={{ flex: 1, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-bg)' }}>
+                    <option value="">- Select violation type -</option>
+                    {COMMON_VIOLATIONS.map(v => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                  <input value={newViolation} onChange={e => setNewViolation(e.target.value)} placeholder="Or type custom…"
+                    style={{ flex: 1, padding: '8px 10px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-bg)' }} />
+                  <button onClick={handleAddRule} disabled={addRuleLoading || !newViolation.trim()}
+                    style={{ padding: '8px 16px', borderRadius: 6, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, opacity: (!newViolation.trim() || addRuleLoading) ? 0.6 : 1 }}>
+                    {addRuleLoading && <LoadingSpinner size={13} color="#fff" />} Add Rule
+                  </button>
+                </div>
+              )}
             </div>
           </>
         )}

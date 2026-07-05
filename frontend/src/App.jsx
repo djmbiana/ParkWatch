@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { useEffect } from "react"
 import { useToast } from "./components/ToastContext"
 import { setApiHandlers } from "./services/api"
+import { PermissionsProvider } from "./contexts/PermissionsContext"
 
 import Landing from "./pages/Landing"
 import Login from "./pages/Login"
@@ -25,6 +26,7 @@ import BarangayDashboard from "./pages/barangay/BarangayDashboard"
 import BarangayQueue from "./pages/barangay/BarangayQueue"
 import BarangayReportDetail from "./pages/barangay/BarangayReportDetail"
 import BarangayPlateSearch from "./pages/barangay/BarangayPlateSearch"
+import BarangayStreets from "./pages/barangay/BarangayStreets"
 
 // MTPB Officer portal
 import OfficerLayout from "./pages/mtpb/OfficerLayout"
@@ -46,7 +48,8 @@ import AdminUsers from "./pages/admin/AdminUsers"
 import AdminBarangays from "./pages/admin/AdminBarangays"
 import AdminStreets from "./pages/admin/AdminStreets"
 import AdminPenaltyTiers from "./pages/admin/AdminPenaltyTiers"
-import AdminAudit from "./pages/admin/AdminAudit"
+import AdminUserGroups from "./pages/admin/AdminUserGroups"
+import AdminAuditLog from "./pages/admin/AdminAuditLog"
 
 function ApiSetup() {
   const navigate = useNavigate()
@@ -57,7 +60,7 @@ function ApiSetup() {
 
 export default function App() {
   return (
-    <>
+    <PermissionsProvider>
       <ApiSetup />
       <Routes>
         {/* Public */}
@@ -67,22 +70,23 @@ export default function App() {
 
         {/* Citizen - public, no auth guard (anonymous reporting) */}
         <Route path="/citizen" element={<CitizenLayout />}>
-          <Route index               element={<CitizenHome />} />
-          <Route path="report"        element={<ReportWizard />} />
-          <Route path="reports"       element={<MyReports />} />
+          <Route index                   element={<CitizenHome />} />
+          <Route path="report"           element={<ReportWizard />} />
+          <Route path="reports"          element={<MyReports />} />
           <Route path="reports/:reportId" element={<ReportDetail />} />
-          <Route path="alerts"        element={<Alerts />} />
-          <Route path="account"       element={<Account />} />
+          <Route path="alerts"           element={<Alerts />} />
+          <Route path="account"          element={<Account />} />
         </Route>
 
         {/* Barangay */}
         <Route path="/barangay" element={
           <RoleRoute allowedRoles={["brgy_official"]}><BarangayLayout /></RoleRoute>
         }>
-          <Route index element={<BarangayDashboard />} />
+          <Route index                   element={<BarangayDashboard />} />
           <Route path="queue"            element={<BarangayQueue />} />
           <Route path="reports/:reportId" element={<BarangayReportDetail />} />
           <Route path="plate-search"     element={<BarangayPlateSearch />} />
+          <Route path="streets"          element={<BarangayStreets />} />
           <Route path="profile"          element={<ProfilePage />} />
         </Route>
 
@@ -90,41 +94,42 @@ export default function App() {
         <Route path="/mtpb/officer" element={
           <RoleRoute allowedRoles={["mtpb_officer"]}><OfficerLayout /></RoleRoute>
         }>
-          <Route index element={<Navigate to="queue" replace />} />
-          <Route path="queue"             element={<OfficerQueue />} />
+          <Route index                   element={<Navigate to="queue" replace />} />
+          <Route path="queue"            element={<OfficerQueue />} />
           <Route path="reports/:reportId" element={<OfficerReportDetail />} />
-          <Route path="plate-search"      element={<OfficerPlateSearch />} />
-          <Route path="profile"           element={<ProfilePage />} />
+          <Route path="plate-search"     element={<OfficerPlateSearch />} />
+          <Route path="profile"          element={<ProfilePage />} />
         </Route>
 
         {/* MTPB Supervisor */}
         <Route path="/mtpb/supervisor" element={
           <RoleRoute allowedRoles={["mtpb_supervisor"]}><SupervisorLayout /></RoleRoute>
         }>
-          <Route index element={<SupervisorDashboard />} />
-          <Route path="escalated" element={<SupervisorEscalated />} />
-          <Route path="reports"   element={<SupervisorReports />} />
-          <Route path="officers"  element={<SupervisorOfficers />} />
-          <Route path="profile"   element={<ProfilePage />} />
+          <Route index              element={<SupervisorDashboard />} />
+          <Route path="escalated"   element={<SupervisorEscalated />} />
+          <Route path="reports"     element={<SupervisorReports />} />
+          <Route path="officers"    element={<SupervisorOfficers />} />
+          <Route path="profile"     element={<ProfilePage />} />
         </Route>
 
         {/* Admin */}
         <Route path="/admin" element={
           <RoleRoute allowedRoles={["admin"]}><AdminLayout /></RoleRoute>
         }>
-          <Route index element={<Navigate to="users" replace />} />
-          <Route path="users"          element={<AdminUsers />} />
-          <Route path="barangays"      element={<AdminBarangays />} />
-          <Route path="streets"        element={<AdminStreets />} />
-          <Route path="penalty-tiers"  element={<AdminPenaltyTiers />} />
-          <Route path="audit"          element={<AdminAudit />} />
-          <Route path="profile"        element={<ProfilePage />} />
+          <Route index                   element={<Navigate to="users" replace />} />
+          <Route path="users"            element={<AdminUsers />} />
+          <Route path="barangays"        element={<AdminBarangays />} />
+          <Route path="streets"          element={<AdminStreets />} />
+          <Route path="penalty-tiers"    element={<AdminPenaltyTiers />} />
+          <Route path="groups"           element={<AdminUserGroups />} />
+          <Route path="audit-log"        element={<AdminAuditLog />} />
+          <Route path="profile"          element={<ProfilePage />} />
         </Route>
 
         {/* Fallback */}
         <Route path="/"  element={<Landing />} />
         <Route path="*"  element={<Navigate to="/" replace />} />
       </Routes>
-    </>
+    </PermissionsProvider>
   )
 }

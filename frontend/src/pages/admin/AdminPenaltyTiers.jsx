@@ -3,6 +3,7 @@ import { useOutletContext } from 'react-router-dom'
 import { TriangleAlert } from 'lucide-react'
 import { adminTiers } from '../../services/api'
 import { useToast } from '../../components/ToastContext'
+import { usePermissions } from '../../contexts/PermissionsContext'
 import LoadingSpinner from '../../components/LoadingSpinner'
 
 const BLANK = { tier_name: '', min_violations: '', max_violations: '', fine_amount: '', requires_clamping: false }
@@ -10,6 +11,9 @@ const BLANK = { tier_name: '', min_violations: '', max_violations: '', fine_amou
 export default function AdminPenaltyTiers() {
   const { setPageTitle } = useOutletContext()
   const toast = useToast()
+  const { hasPermission } = usePermissions()
+  const canCreate = hasPermission('penalty', 'manage', 'create')
+  const canUpdate = hasPermission('penalty', 'manage', 'update')
   const [tiers, setTiers] = useState([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState({})
@@ -198,12 +202,12 @@ export default function AdminPenaltyTiers() {
                             Cancel
                           </button>
                         </div>
-                      ) : (
+                      ) : canUpdate ? (
                         <button onClick={() => startEdit(t)}
                           style={{ padding: '4px 14px', borderRadius: 6, background: '#0F1117', color: '#fff', border: 'none', fontSize: 12, fontWeight: 500, cursor: 'pointer', height: 28 }}>
                           Edit
                         </button>
-                      )}
+                      ) : null}
                     </td>
                   </tr>
                 )
@@ -260,12 +264,14 @@ export default function AdminPenaltyTiers() {
           <div style={{ padding: '8px 16px', background: '#FEF2F2', borderTop: '1px solid #FECACA', fontSize: 12, color: '#DC2626' }}>{newErr._overlap}</div>
         )}
 
-        <div style={{ padding: '14px 16px', borderTop: '1px solid var(--color-border)' }}>
-          <button onClick={() => { setAddingNew(true); setNewTier(BLANK); setNewErr({}) }}
-            style={{ padding: '7px 16px', borderRadius: 6, background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-            + Add Tier
-          </button>
-        </div>
+        {canCreate && (
+          <div style={{ padding: '14px 16px', borderTop: '1px solid var(--color-border)' }}>
+            <button onClick={() => { setAddingNew(true); setNewTier(BLANK); setNewErr({}) }}
+              style={{ padding: '7px 16px', borderRadius: 6, background: 'transparent', color: 'var(--accent)', border: '1px solid var(--accent)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              + Add Tier
+            </button>
+          </div>
+        )}
       </div>
     </div>
   )

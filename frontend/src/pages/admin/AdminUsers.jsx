@@ -3,21 +3,20 @@ import { useOutletContext } from 'react-router-dom'
 import { Search, Copy, Check } from 'lucide-react'
 import { adminUsers, adminBarangays } from '../../services/api'
 import { useToast } from '../../components/ToastContext'
+import { usePermissions } from '../../contexts/PermissionsContext'
 import StatCard from '../../components/StatCard'
 import ConfirmModal from '../../components/ConfirmModal'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import useMediaQuery from '../../hooks/useMediaQuery'
 
 const ROLE_LABELS = {
-  citizen: 'Citizen',
-  brgy_official: 'Brgy. Official',
-  mtpb_officer: 'MTPB Officer',
+  brgy_official:   'Brgy. Official',
+  mtpb_officer:    'MTPB Officer',
   mtpb_supervisor: 'MTPB Supervisor',
-  admin: 'Admin',
+  admin:           'Admin',
 }
 
 const ROLE_COLORS = {
-  citizen:         { color: '#6B7280', bg: '#F3F4F6' },
   brgy_official:   { color: '#2563EB', bg: '#EFF6FF' },
   mtpb_officer:    { color: '#D97706', bg: '#FFFBEB' },
   mtpb_supervisor: { color: '#7C3AED', bg: '#F5F3FF' },
@@ -45,6 +44,10 @@ export default function AdminUsers() {
   const { setPageTitle } = useOutletContext()
   const toast = useToast()
   const isMobile = useMediaQuery('(max-width: 767px)')
+  const { hasPermission } = usePermissions()
+  const canCreate  = hasPermission('users_mgt', 'edit_profile', 'create')
+  const canEdit    = hasPermission('users_mgt', 'edit_profile', 'update')
+  const canStatus  = hasPermission('users_mgt', 'status_update', 'update')
   const [users, setUsers] = useState([])
   const [barangays, setBarangays] = useState([])
   const [loading, setLoading] = useState(true)
@@ -74,14 +77,17 @@ export default function AdminUsers() {
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
+  // Citizens have no staff account — exclude them from the admin view entirely
+  const staffUsers = users.filter(u => u.role !== 'citizen')
+
   const counts = {
-    citizen:         users.filter(u => u.role === 'citizen').length,
-    brgy_official:   users.filter(u => u.role === 'brgy_official').length,
-    mtpb_officer:    users.filter(u => u.role === 'mtpb_officer').length,
-    mtpb_supervisor: users.filter(u => u.role === 'mtpb_supervisor').length,
+    brgy_official:   staffUsers.filter(u => u.role === 'brgy_official').length,
+    mtpb_officer:    staffUsers.filter(u => u.role === 'mtpb_officer').length,
+    mtpb_supervisor: staffUsers.filter(u => u.role === 'mtpb_supervisor').length,
+    admin:           staffUsers.filter(u => u.role === 'admin').length,
   }
 
-  let filtered = users
+  let filtered = staffUsers
   if (search) {
     const q = search.toLowerCase()
     filtered = filtered.filter(u =>
@@ -162,10 +168,10 @@ export default function AdminUsers() {
   return (
     <div>
       <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
-        <StatCard value={counts.citizen}         label="Total Citizens" />
         <StatCard value={counts.brgy_official}   label="Barangay Officials" color="var(--color-verified)" />
         <StatCard value={counts.mtpb_officer}    label="MTPB Officers"      color="var(--color-dispatched)" />
         <StatCard value={counts.mtpb_supervisor} label="Supervisors"        color="var(--color-ack)" />
+        <StatCard value={counts.admin}           label="Admins" />
       </div>
 
       <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
@@ -181,10 +187,12 @@ export default function AdminUsers() {
             <option value="all">All Roles</option>
             {Object.entries(ROLE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
-          <button onClick={() => { setForm(BLANK_FORM); setFormErr({}); setTempPassword(null); setShowProvision(true) }}
-            style={{ padding: '7px 16px', borderRadius: 6, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-            + Provision Official Account
-          </button>
+          {canCreate && (
+            <button onClick={() => { setForm(BLANK_FORM); setFormErr({}); setTempPassword(null); setShowProvision(true) }}
+              style={{ padding: '7px 16px', borderRadius: 6, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              + Provision Official Account
+            </button>
+          )}
         </div>
 
         {loading ? (
@@ -232,13 +240,17 @@ export default function AdminUsers() {
                     {u.created_at ? new Date(u.created_at).toLocaleDateString('en-PH', { month: 'short', day: 'numeric' }) : '-'}
                   </td>
                   <td style={{ padding: '0 12px' }}>
-                    {u.role !== 'citizen' && u.is_active ? (
-                      <button onClick={() => openEdit(u)} style={actionBtn('#0F1117')}>Edit</button>
-                    ) : u.is_active ? (
-                      <button onClick={() => setDeactivateTarget(u)} style={actionBtn('#EF4444')}>Deactivate</button>
-                    ) : (
-                      <button onClick={() => handleReactivate(u)} style={actionBtn('#10B981')}>Reactivate</button>
-                    )}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {canEdit && (
+                        <button onClick={() => openEdit(u)} style={actionBtn('#0F1117')}>Edit</button>
+                      )}
+                      {canStatus && u.is_active && (
+                        <button onClick={() => setDeactivateTarget(u)} style={actionBtn('#EF4444')}>Deactivate</button>
+                      )}
+                      {canStatus && !u.is_active && (
+                        <button onClick={() => handleReactivate(u)} style={actionBtn('#10B981')}>Reactivate</button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

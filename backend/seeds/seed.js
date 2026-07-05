@@ -115,11 +115,13 @@ const PENALTY_TIERS = [
 // barangay@test.com is assigned to Barangay 701 (barangay_id 1 on a fresh DB);
 // the id is looked up by name so the seed also works on pre-existing databases.
 const TEST_USERS = [
-  { email: 'citizen@test.com',    role: 'citizen',         first_name: 'Test', last_name: 'Citizen',    barangay: null,           alias: 'Citizen_test01' },
-  { email: 'barangay@test.com',   role: 'brgy_official',   first_name: 'Test', last_name: 'Official',   barangay: 'Barangay 726', alias: 'Official_test01' },
-  { email: 'officer@test.com',    role: 'mtpb_officer',    first_name: 'Test', last_name: 'Officer',    barangay: null,           alias: 'Officer_test01' },
-  { email: 'supervisor@test.com', role: 'mtpb_supervisor', first_name: 'Test', last_name: 'Supervisor', barangay: null,           alias: 'Supervisor_test01' },
-  { email: 'admin@test.com',      role: 'admin',           first_name: 'Test', last_name: 'Admin',      barangay: null,           alias: 'Admin_test01' },
+  { email: 'citizen@test.com',      role: 'citizen',         first_name: 'Test', last_name: 'Citizen',     barangay: null,           alias: 'Citizen_test01'  },
+  { email: 'barangay@test.com',     role: 'brgy_official',   first_name: 'Test', last_name: 'Official',    barangay: 'Barangay 726', alias: 'Official_test01' },
+  { email: 'officer@test.com',      role: 'mtpb_officer',    first_name: 'Test', last_name: 'Officer',     barangay: null,           alias: 'Officer_test01'  },
+  { email: 'supervisor@test.com',   role: 'mtpb_supervisor', first_name: 'Test', last_name: 'Supervisor',  barangay: null,           alias: 'Supervisor_test01' },
+  { email: 'admin@test.com',        role: 'admin',           first_name: 'Test', last_name: 'Admin',       barangay: null,           alias: 'Admin_test01'    },
+  // User Manager: role=admin (lands on /admin) but limited group permissions
+  { email: 'usermanager@test.com',  role: 'admin',           first_name: 'Test', last_name: 'UserManager', barangay: null,           alias: 'UserMgr_test01'  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -337,6 +339,250 @@ async function seedBarangayOfficials(connection, barangayIds) {
 }
 
 // ---------------------------------------------------------------------------
+// RBAC seed — groups, permissions, matrix, and user assignments
+// ---------------------------------------------------------------------------
+
+// Six canonical groups; is_system_role on Super Admin prevents deletion.
+const USER_GROUPS = [
+  { name: 'Super Admin',       description: 'Full unrestricted access. Cannot be deleted or demoted.',            is_system_role: true  },
+  { name: 'User Manager',      description: 'Manages staff profiles and account status. No data admin access.',   is_system_role: false },
+  { name: 'Barangay Captain',  description: 'Manages own barangay data and verifies violation reports.',          is_system_role: false },
+  { name: 'Barangay Official', description: 'Verifies reports for own barangay. No street/barangay management.', is_system_role: false },
+  { name: 'MTPB Officer',      description: 'Handles enforcement queue and resolves violations.',                  is_system_role: false },
+  { name: 'MTPB Supervisor',   description: 'Oversees escalated reports and manages officer assignments.',         is_system_role: false },
+];
+
+// Eight permissions: function-level for users_mgt, module-level elsewhere.
+const PERMISSIONS = [
+  { module_name: 'users_mgt',     function_name: 'edit_profile',   description: 'View and edit user profile fields' },
+  { module_name: 'users_mgt',     function_name: 'reset_password', description: 'Reset or change user passwords' },
+  { module_name: 'users_mgt',     function_name: 'status_update',  description: 'Activate or deactivate user accounts' },
+  { module_name: 'brgy_mgt',      function_name: 'manage',         description: 'Manage barangay records' },
+  { module_name: 'streets_rules', function_name: 'manage',         description: 'Manage streets and parking rules' },
+  { module_name: 'penalty',       function_name: 'manage',         description: 'Manage penalty tiers' },
+  { module_name: 'audit',         function_name: 'manage',         description: 'View audit logs' },
+  { module_name: 'reports',       function_name: 'manage',         description: 'View and act on violation reports' },
+];
+
+// Permission matrix: [group_name, module, func, create, read, update, delete]
+// false = no permission (row will be omitted / have all flags false).
+const MATRIX = [
+  // Super Admin — full CRUD everywhere
+  ['Super Admin', 'users_mgt',     'edit_profile',   1,1,1,1],
+  ['Super Admin', 'users_mgt',     'reset_password', 1,1,1,1],
+  ['Super Admin', 'users_mgt',     'status_update',  1,1,1,1],
+  ['Super Admin', 'brgy_mgt',      'manage',         1,1,1,1],
+  ['Super Admin', 'streets_rules', 'manage',         1,1,1,1],
+  ['Super Admin', 'penalty',       'manage',         1,1,1,1],
+  ['Super Admin', 'audit',         'manage',         1,1,1,1],
+  ['Super Admin', 'reports',       'manage',         1,1,1,1],
+
+  // User Manager — profile R/U, reset_password U, status_update U, brgy/streets R, reports C
+  ['User Manager', 'users_mgt',     'edit_profile',   0,1,1,0],
+  ['User Manager', 'users_mgt',     'reset_password', 0,0,1,0],
+  ['User Manager', 'users_mgt',     'status_update',  0,0,1,0],
+  ['User Manager', 'brgy_mgt',      'manage',         0,1,0,0],
+  ['User Manager', 'streets_rules', 'manage',         0,1,0,0],
+  ['User Manager', 'reports',       'manage',         1,0,0,0],
+
+  // Barangay Captain — own barangay CRUD, streets CRUD, penalty R, reports R/U
+  ['Barangay Captain', 'brgy_mgt',      'manage',     1,1,1,1],
+  ['Barangay Captain', 'streets_rules', 'manage',     1,1,1,1],
+  ['Barangay Captain', 'penalty',       'manage',     0,1,0,0],
+  ['Barangay Captain', 'reports',       'manage',     0,1,1,0],
+
+  // Barangay Official — report queue only; no street or barangay management
+  ['Barangay Official', 'reports',      'manage',     0,1,1,0],
+
+  // MTPB Officer — streets R, penalty C/R, reports R/U
+  ['MTPB Officer', 'streets_rules', 'manage', 0,1,0,0],
+  ['MTPB Officer', 'penalty',       'manage', 1,1,0,0],
+  ['MTPB Officer', 'reports',       'manage', 0,1,1,0],
+
+  // MTPB Supervisor — users.edit_profile R (own officers), brgy/streets R, penalty R/U, reports R/U
+  ['MTPB Supervisor', 'users_mgt',     'edit_profile', 0,1,0,0],
+  ['MTPB Supervisor', 'brgy_mgt',      'manage',       0,1,0,0],
+  ['MTPB Supervisor', 'streets_rules', 'manage',       0,1,0,0],
+  ['MTPB Supervisor', 'penalty',       'manage',       0,1,1,0],
+  ['MTPB Supervisor', 'reports',       'manage',       0,1,1,0],
+];
+
+async function seedRbac(connection) {
+  // 1. User groups
+  for (const g of USER_GROUPS) {
+    await connection.execute(
+      `INSERT INTO user_groups (name, description, is_system_role)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE description = VALUES(description), is_system_role = VALUES(is_system_role)`,
+      [g.name, g.description, g.is_system_role]
+    );
+  }
+
+  // 2. Permissions
+  for (const p of PERMISSIONS) {
+    await connection.execute(
+      `INSERT INTO permissions (module_name, function_name, description)
+       VALUES (?, ?, ?)
+       ON DUPLICATE KEY UPDATE description = VALUES(description)`,
+      [p.module_name, p.function_name, p.description]
+    );
+  }
+
+  // 3. Resolve IDs
+  const [groupRows] = await connection.query(`SELECT id, name FROM user_groups`);
+  const groupMap    = new Map(groupRows.map((r) => [r.name, r.id]));
+  const [permRows]  = await connection.query(`SELECT id, module_name, function_name FROM permissions`);
+  const permMap     = new Map(permRows.map((r) => [`${r.module_name}::${r.function_name}`, r.id]));
+
+  // 4. Group permissions matrix
+  for (const [groupName, module, func, c, r, u, d] of MATRIX) {
+    const groupId = groupMap.get(groupName);
+    const permId  = permMap.get(`${module}::${func}`);
+    if (!groupId || !permId) continue;
+    await connection.execute(
+      `INSERT INTO group_permissions (group_id, permission_id, can_create, can_read, can_update, can_delete)
+       VALUES (?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         can_create = VALUES(can_create), can_read = VALUES(can_read),
+         can_update = VALUES(can_update), can_delete = VALUES(can_delete)`,
+      [groupId, permId, c, r, u, d]
+    );
+  }
+
+  // 5. Assign groups to test users (by role → canonical group)
+  const ROLE_GROUP = {
+    brgy_official:   'Barangay Captain',
+    mtpb_officer:    'MTPB Officer',
+    mtpb_supervisor: 'MTPB Supervisor',
+  };
+  for (const [role, groupName] of Object.entries(ROLE_GROUP)) {
+    const gid = groupMap.get(groupName);
+    if (!gid) continue;
+    await connection.execute(
+      `UPDATE USERS SET group_id = ? WHERE role = ? AND group_id IS NULL`,
+      [gid, role]
+    );
+    await connection.execute(
+      `UPDATE USERS SET group_id = ? WHERE role = ? AND email LIKE '%@test.com'`,
+      [gid, role]
+    );
+  }
+
+  // All role=admin accounts default to Super Admin, then override specific emails
+  const superAdminGid   = groupMap.get('Super Admin');
+  const userManagerGid  = groupMap.get('User Manager');
+  if (superAdminGid) {
+    await connection.execute(
+      `UPDATE USERS SET group_id = ? WHERE role = 'admin' AND email LIKE '%@test.com'`,
+      [superAdminGid]
+    );
+  }
+  // usermanager@test.com gets the User Manager group specifically
+  if (userManagerGid) {
+    await connection.execute(
+      `UPDATE USERS SET group_id = ? WHERE email = 'usermanager@test.com'`,
+      [userManagerGid]
+    );
+  }
+  // barangay@test.com is the generic "Barangay Official" test account — lower
+  // permissions than a Captain so we can demonstrate the access difference.
+  const brgyOfficialGid = groupMap.get('Barangay Official');
+  if (brgyOfficialGid) {
+    await connection.execute(
+      `UPDATE USERS SET group_id = ? WHERE email = 'barangay@test.com'`,
+      [brgyOfficialGid]
+    );
+  }
+
+  // 6. Assign officer@test.com to supervisor@test.com
+  const [[sup]] = await connection.execute(`SELECT user_id FROM USERS WHERE email = 'supervisor@test.com' LIMIT 1`);
+  const [[off]] = await connection.execute(`SELECT user_id FROM USERS WHERE email = 'officer@test.com' LIMIT 1`);
+  if (sup && off) {
+    await connection.execute(
+      `UPDATE USERS SET supervisor_id = ? WHERE user_id = ?`, [sup.user_id, off.user_id]
+    );
+  }
+
+  logger.info(`RBAC seeded (${USER_GROUPS.length} groups, ${PERMISSIONS.length} permissions, ${MATRIX.length} matrix rows; barangay@test.com → Barangay Official)`);
+}
+
+// ---------------------------------------------------------------------------
+// Audit log demo entries — gives the Audit Log page something to show on
+// first visit. Skips insertion if 5+ rows already exist so re-runs don't
+// duplicate. Uses ON DUPLICATE KEY is not applicable here (no unique key on
+// audit_logs), so we guard with a count check instead.
+// ---------------------------------------------------------------------------
+
+async function seedAuditLogs(connection) {
+  const [[{ cnt }]] = await connection.query(`SELECT COUNT(*) AS cnt FROM audit_logs`);
+  if (cnt >= 5) {
+    logger.info('Audit log demo entries already present — skipping.');
+    return;
+  }
+
+  // Resolve user IDs and group IDs for the demo actors
+  const [[admin]]   = await connection.execute(`SELECT user_id FROM USERS WHERE email='admin@test.com' LIMIT 1`);
+  const [[umgr]]    = await connection.execute(`SELECT user_id FROM USERS WHERE email='usermanager@test.com' LIMIT 1`);
+  const [[brgy]]    = await connection.execute(`SELECT user_id FROM USERS WHERE email='barangay726@test.com' LIMIT 1`);
+  const [[grpSuper]]= await connection.execute(`SELECT id FROM user_groups WHERE name='Super Admin' LIMIT 1`);
+  const [[grpUmgr]] = await connection.execute(`SELECT id FROM user_groups WHERE name='User Manager' LIMIT 1`);
+  const [[grpBrgy]] = await connection.execute(`SELECT id FROM user_groups WHERE name='Barangay Captain' LIMIT 1`);
+
+  const entries = [
+    // Admin provisioned a new officer
+    [admin?.user_id, grpSuper?.id, 'users_mgt','edit_profile','create','USERS',  '99',
+     null,
+     JSON.stringify({ email:'newstaff@example.com', role:'mtpb_officer' }),
+     '127.0.0.1'],
+    // Admin updated the officer's name
+    [admin?.user_id, grpSuper?.id, 'users_mgt','edit_profile','update','USERS',  '99',
+     JSON.stringify({ first_name:'Old', last_name:'Name' }),
+     JSON.stringify({ first_name:'Juan', last_name:'dela Cruz' }),
+     '127.0.0.1'],
+    // User Manager deactivated a user
+    [umgr?.user_id,  grpUmgr?.id,  'users_mgt','status_update','update','USERS', '14',
+     JSON.stringify({ is_active:true }),
+     JSON.stringify({ is_active:false }),
+     '10.0.0.5'],
+    // User Manager reactivated same user
+    [umgr?.user_id,  grpUmgr?.id,  'users_mgt','status_update','update','USERS', '14',
+     JSON.stringify({ is_active:false }),
+     JSON.stringify({ is_active:true }),
+     '10.0.0.5'],
+    // Admin created a new User Group
+    [admin?.user_id, grpSuper?.id, 'users_mgt','edit_profile','create','user_groups', '6',
+     null,
+     JSON.stringify({ name:'Report Reviewer', description:'Read-only access to reports' }),
+     '127.0.0.1'],
+    // Barangay Captain's group permissions updated
+    [admin?.user_id, grpSuper?.id, 'users_mgt','edit_profile','update','group_permissions','3',
+     JSON.stringify({ penalty:{ can_read:0 } }),
+     JSON.stringify({ penalty:{ can_read:1 } }),
+     '127.0.0.1'],
+    // User Manager assigned a user to Barangay Captain group
+    [umgr?.user_id,  grpUmgr?.id,  'users_mgt','edit_profile','update','USERS',  '7',
+     JSON.stringify({ group_id:4 }),
+     JSON.stringify({ group_id:3 }),
+     '10.0.0.5'],
+    // Barangay Captain read their own reports (read action)
+    [brgy?.user_id,  grpBrgy?.id,  'reports','manage','read','REPORTS', null,
+     null, null, '192.168.1.12'],
+  ];
+
+  for (const row of entries) {
+    if (row[0] == null) continue; // skip if user wasn't found
+    await connection.execute(
+      `INSERT INTO audit_logs
+         (user_id, group_id, module_name, function_name, action_type,
+          target_table, target_id, before_value, after_value, ip_address)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      row
+    );
+  }
+  logger.info(`Audit log demo entries seeded (${entries.filter(r => r[0] != null).length} rows)`);
+}
+
+// ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
@@ -353,15 +599,18 @@ async function seed() {
     await seedTestUsers(connection, barangayIds);
     await seedDeactivatedUser(connection);
     await seedBarangayOfficials(connection, barangayIds);
+    await seedRbac(connection);
+    await seedAuditLogs(connection);
 
     logger.info('─────────────────────────────────────────');
     logger.info(`Seed complete. Test accounts use password: ${TEST_PASSWORD}`);
-    logger.info('  citizen@test.com                → citizen');
-    logger.info('  barangay@test.com               → brgy_official (Barangay 726)');
-    logger.info(`  barangay{${PARTNER_NUMBERS.join('/')}}@test.com → brgy_official (one per partner barangay)`);
-    logger.info('  officer@test.com                → mtpb_officer');
-    logger.info('  supervisor@test.com             → mtpb_supervisor');
-    logger.info('  admin@test.com                  → admin');
+    logger.info('  citizen@test.com                → citizen (no portal)');
+    logger.info('  barangay@test.com               → brgy_official (Barangay 726) [group: Barangay Official — no street mgmt]');
+    logger.info(`  barangay{${PARTNER_NUMBERS.join('/')}}@test.com → brgy_official (one per partner barangay) [group: Barangay Captain]`);
+    logger.info('  officer@test.com                → mtpb_officer [group: MTPB Officer, supervisor: supervisor@test.com]');
+    logger.info('  supervisor@test.com             → mtpb_supervisor [group: MTPB Supervisor]');
+    logger.info('  admin@test.com                  → admin [group: Super Admin]');
+    logger.info('  usermanager@test.com            → admin [group: User Manager — limited admin portal]');
     logger.info('⚠ Test accounts are for development only — remove before production.');
     logger.info('─────────────────────────────────────────');
   } catch (err) {

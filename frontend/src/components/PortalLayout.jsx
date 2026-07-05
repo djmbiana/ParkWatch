@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { LogOut, Menu, X } from 'lucide-react'
 import { clearAuth, getStoredUser } from '../utils/auth'
+import { usePermissions } from '../contexts/PermissionsContext'
 
 // Tracks whether the viewport is phone/tablet width so the sidebar can switch
 // between a fixed rail (desktop) and a slide-in drawer (mobile).
@@ -20,6 +21,7 @@ function useIsMobile(breakpoint = 768) {
 export default function PortalLayout({ portalClass, logo, roleLabel, navItems, children, pageTitle }) {
   const navigate = useNavigate()
   const user = getStoredUser()
+  const { reload } = usePermissions()
   const [hoveredLogout, setHoveredLogout] = useState(false)
   const isMobile = useIsMobile()
   const [drawerOpen, setDrawerOpen] = useState(false)
@@ -29,6 +31,7 @@ export default function PortalLayout({ portalClass, logo, roleLabel, navItems, c
 
   const handleLogout = () => {
     clearAuth()
+    reload()
     navigate('/login', { replace: true })
   }
 

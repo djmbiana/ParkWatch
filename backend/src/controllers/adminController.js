@@ -7,6 +7,7 @@
 
 const bcrypt = require('bcrypt');
 const { pool } = require('../config/db');
+const { logAudit } = require('./userGroupsController');
 
 const fail = (res, code, msg) => res.status(code).json({ success: false, message: msg });
 
@@ -54,6 +55,7 @@ const createUser = async (req, res, next) => {
       [first_name, last_name, email, hash, role, barangay_id || null, alias]
     );
 
+    await logAudit(req, 'users_mgt', 'edit_profile', 'create', 'USERS', result.insertId, null, { email, role });
     return res.status(201).json({
       success: true,
       message: 'Account provisioned.',
@@ -68,11 +70,16 @@ const updateUser = async (req, res, next) => {
   const { userId } = req.params;
   const { first_name, last_name, email, barangay_id } = req.body;
   try {
+    const [[before]] = await pool.execute(
+      'SELECT first_name, last_name, email, barangay_id FROM USERS WHERE user_id = ?', [userId]
+    );
     await pool.execute(
       `UPDATE USERS SET first_name=COALESCE(?,first_name), last_name=COALESCE(?,last_name),
               email=COALESCE(?,email), barangay_id=COALESCE(?,barangay_id) WHERE user_id=?`,
       [first_name||null, last_name||null, email||null, barangay_id||null, userId]
     );
+    await logAudit(req, 'users_mgt', 'edit_profile', 'update', 'USERS', userId,
+      before, { first_name, last_name, email, barangay_id });
     return res.json({ success: true, message: 'User updated.' });
   } catch (err) { return next(err); }
 };
@@ -81,6 +88,8 @@ const deactivateUser = async (req, res, next) => {
   const { userId } = req.params;
   try {
     await pool.execute('UPDATE USERS SET is_active=FALSE WHERE user_id=?', [userId]);
+    await logAudit(req, 'users_mgt', 'status_update', 'update', 'USERS', userId,
+      { is_active: true }, { is_active: false });
     return res.json({ success: true, message: 'User deactivated.' });
   } catch (err) { return next(err); }
 };
@@ -89,6 +98,8 @@ const reactivateUser = async (req, res, next) => {
   const { userId } = req.params;
   try {
     await pool.execute('UPDATE USERS SET is_active=TRUE WHERE user_id=?', [userId]);
+    await logAudit(req, 'users_mgt', 'status_update', 'update', 'USERS', userId,
+      { is_active: false }, { is_active: true });
     return res.json({ success: true, message: 'User reactivated.' });
   } catch (err) { return next(err); }
 };
@@ -108,6 +119,9 @@ const listOfficers = async (req, res, next) => {
 // ---------------------------------------------------------------------------
 
 const listBarangays = async (req, res, next) => {
+  const { restrict_to_barangay, own_barangay_id } = req.permScope;
+  const scopeFilter = restrict_to_barangay ? 'AND b.barangay_id = ?' : '';
+  const scopeParams = restrict_to_barangay ? [own_barangay_id] : [];
   try {
     const [rows] = await pool.execute(
       `SELECT b.barangay_id, b.barangay_name, b.barangay_number, b.is_participating AS is_active,
@@ -121,7 +135,9 @@ const listBarangays = async (req, res, next) => {
                   AND YEAR(r.submitted_at) = YEAR(CURDATE())) AS reports_this_month
        FROM BARANGAYS b
        LEFT JOIN USERS u ON u.barangay_id = b.barangay_id AND u.role = 'brgy_official' AND u.is_active = TRUE
-       ORDER BY b.barangay_name`
+       WHERE 1=1 ${scopeFilter}
+       ORDER BY b.barangay_name`,
+      scopeParams
     );
     return res.json({ success: true, message: 'Success', data: rows });
   } catch (err) { return next(err); }
@@ -133,6 +149,9 @@ const listBarangays = async (req, res, next) => {
 // sets its map pin — see the barangay page flow. barangay_name is UNIQUE, so a
 // duplicate returns 409 via the error handler.
 const createBarangay = async (req, res, next) => {
+  if (req.permScope.restrict_to_barangay) {
+    return fail(res, 403, 'Barangay Captains cannot create new barangays.');
+  }
   const name = (req.body.barangay_name || '').trim();
   const number = (req.body.barangay_number || '').trim() || null;
   if (!name) return fail(res, 422, 'barangay_name is required.');
@@ -147,6 +166,10 @@ const createBarangay = async (req, res, next) => {
 
 const toggleBarangay = async (req, res, next) => {
   const { barangayId } = req.params;
+  const { restrict_to_barangay, own_barangay_id } = req.permScope;
+  if (restrict_to_barangay && Number(barangayId) !== own_barangay_id) {
+    return fail(res, 403, 'You can only manage your own barangay.');
+  }
   try {
     await pool.execute(
       'UPDATE BARANGAYS SET is_participating = NOT is_participating WHERE barangay_id = ?',
@@ -161,6 +184,10 @@ const toggleBarangay = async (req, res, next) => {
 // Human-set from the admin map picker, so it matches the real location exactly.
 const setBarangayLocation = async (req, res, next) => {
   const { barangayId } = req.params;
+  const { restrict_to_barangay, own_barangay_id } = req.permScope;
+  if (restrict_to_barangay && Number(barangayId) !== own_barangay_id) {
+    return fail(res, 403, 'You can only manage your own barangay.');
+  }
   const lat = Number(req.body.latitude);
   const lng = Number(req.body.longitude);
   if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180) {
@@ -181,12 +208,17 @@ const setBarangayLocation = async (req, res, next) => {
 // ---------------------------------------------------------------------------
 
 const listStreets = async (req, res, next) => {
+  const { restrict_to_barangay, own_barangay_id } = req.permScope;
+  const scopeFilter = restrict_to_barangay ? 'WHERE s.barangay_id = ?' : '';
+  const scopeParams = restrict_to_barangay ? [own_barangay_id] : [];
   try {
     const [streets] = await pool.execute(
       `SELECT s.street_id, s.street_name, s.is_active, s.barangay_id, b.barangay_name
        FROM STREETS s
        LEFT JOIN BARANGAYS b ON b.barangay_id = s.barangay_id
-       ORDER BY b.barangay_name, s.street_name`
+       ${scopeFilter}
+       ORDER BY b.barangay_name, s.street_name`,
+      scopeParams
     );
     const [rules] = await pool.execute('SELECT rule_id, street_id, violation_type, is_active FROM PARKING_RULES ORDER BY violation_type');
 
@@ -209,6 +241,10 @@ const listStreets = async (req, res, next) => {
 const createStreet = async (req, res, next) => {
   const { street_name, barangay_id } = req.body;
   if (!street_name || !barangay_id) return fail(res, 400, 'street_name and barangay_id are required.');
+  const { restrict_to_barangay, own_barangay_id } = req.permScope;
+  if (restrict_to_barangay && Number(barangay_id) !== own_barangay_id) {
+    return fail(res, 403, 'You can only add streets to your own barangay.');
+  }
   try {
     const [result] = await pool.execute(
       'INSERT INTO STREETS (street_name, barangay_id) VALUES (?, ?)',
@@ -224,7 +260,14 @@ const createStreet = async (req, res, next) => {
 // PATCH /api/admin/streets/:streetId/deactivate — soft-delete (UC-15).
 const deactivateStreet = async (req, res, next) => {
   const { streetId } = req.params;
+  const { restrict_to_barangay, own_barangay_id } = req.permScope;
   try {
+    if (restrict_to_barangay) {
+      const [[street]] = await pool.execute('SELECT barangay_id FROM STREETS WHERE street_id = ?', [streetId]);
+      if (!street || street.barangay_id !== own_barangay_id) {
+        return fail(res, 403, 'You can only deactivate streets in your own barangay.');
+      }
+    }
     await pool.execute('UPDATE STREETS SET is_active = FALSE WHERE street_id = ?', [streetId]);
     return res.json({ success: true, message: 'Street deactivated.' });
   } catch (err) { return next(err); }
@@ -232,10 +275,14 @@ const deactivateStreet = async (req, res, next) => {
 
 // GET /api/admin/parking-rules?street_id= — rules with their street name (UC-17).
 const listRules = async (req, res, next) => {
+  const { restrict_to_barangay, own_barangay_id } = req.permScope;
   try {
     const { street_id } = req.query;
-    const where = street_id ? 'WHERE pr.street_id = ?' : '';
-    const params = street_id ? [parseInt(street_id, 10)] : [];
+    const conditions = [];
+    const params = [];
+    if (street_id) { conditions.push('pr.street_id = ?'); params.push(parseInt(street_id, 10)); }
+    if (restrict_to_barangay) { conditions.push('s.barangay_id = ?'); params.push(own_barangay_id); }
+    const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
     const [rows] = await pool.execute(
       `SELECT pr.rule_id, pr.street_id, pr.violation_type, pr.is_active, s.street_name
          FROM PARKING_RULES pr
@@ -250,7 +297,17 @@ const listRules = async (req, res, next) => {
 
 const toggleRule = async (req, res, next) => {
   const { ruleId } = req.params;
+  const { restrict_to_barangay, own_barangay_id } = req.permScope;
   try {
+    if (restrict_to_barangay) {
+      const [[rule]] = await pool.execute(
+        'SELECT s.barangay_id FROM PARKING_RULES pr JOIN STREETS s ON s.street_id = pr.street_id WHERE pr.rule_id = ?',
+        [ruleId]
+      );
+      if (!rule || rule.barangay_id !== own_barangay_id) {
+        return fail(res, 403, 'You can only manage rules for streets in your own barangay.');
+      }
+    }
     await pool.execute('UPDATE PARKING_RULES SET is_active = NOT is_active WHERE rule_id = ?', [ruleId]);
     return res.json({ success: true, message: 'Rule toggled.' });
   } catch (err) { return next(err); }
@@ -259,6 +316,13 @@ const toggleRule = async (req, res, next) => {
 const createRule = async (req, res, next) => {
   const { street_id, violation_type } = req.body;
   if (!street_id || !violation_type) return fail(res, 400, 'street_id and violation_type are required.');
+  const { restrict_to_barangay, own_barangay_id } = req.permScope;
+  if (restrict_to_barangay) {
+    const [[street]] = await pool.execute('SELECT barangay_id FROM STREETS WHERE street_id = ?', [street_id]);
+    if (!street || street.barangay_id !== own_barangay_id) {
+      return fail(res, 403, 'You can only add rules to streets in your own barangay.');
+    }
+  }
   try {
     const [result] = await pool.execute(
       'INSERT INTO PARKING_RULES (street_id, violation_type) VALUES (?, ?)',

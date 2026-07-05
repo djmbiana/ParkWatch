@@ -69,6 +69,9 @@ app.use('/api/admin', require('./routes/adminRoutes'));
 app.use('/api/notifications', require('./routes/notificationRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/barangays', require('./routes/barangayRoutes'));
+// RBAC: single endpoint that returns the logged-in user's permission set
+// (used by the frontend PermissionsContext to drive nav + button visibility).
+app.use('/api/permissions', require('./routes/permissionRoutes'));
 
 // ── 404 Handler ──────────────────────────────────────────
 app.use((req, res) => {

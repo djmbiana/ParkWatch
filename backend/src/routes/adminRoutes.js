@@ -1,37 +1,58 @@
 const express = require('express');
 const adminController = require('../controllers/adminController');
+const ugController    = require('../controllers/userGroupsController');
 const { authenticate } = require('../middleware/auth');
-const { authorize, ROLES } = require('../middleware/roleMiddleware');
+const { checkPermission, requireSystemRole } = require('../middleware/checkPermission');
 
 const router = express.Router();
-const admin = [authenticate, authorize(ROLES.ADMIN)];
-const adminOrSup = [authenticate, authorize(ROLES.ADMIN, ROLES.MTPB_SUPERVISOR)];
 
-// Users
-router.get  ('/users',                  ...admin,      adminController.listUsers);
-router.post ('/users',                  ...admin,      adminController.createUser);
-router.patch('/users/:userId',          ...admin,      adminController.updateUser);
-router.patch('/users/:userId/deactivate', ...admin,    adminController.deactivateUser);
-router.patch('/users/:userId/reactivate', ...admin,    adminController.reactivateUser);
-router.get  ('/officers',               ...adminOrSup, adminController.listOfficers);
+// Convenience shorthands
+const cp = (mod, fn, action) => [authenticate, checkPermission(mod, fn, action)];
+const sys = [authenticate, requireSystemRole];
 
-// Barangays
-router.get  ('/barangays',                ...admin, adminController.listBarangays);
-router.post ('/barangays',                ...admin, adminController.createBarangay);
-router.patch('/barangays/:barangayId/toggle',   ...admin, adminController.toggleBarangay);
-router.patch('/barangays/:barangayId/location', ...admin, adminController.setBarangayLocation);
+// ─── Users ────────────────────────────────────────────────────────────────────
+router.get   ('/users',                       ...cp('users_mgt','edit_profile','read'),    adminController.listUsers);
+router.post  ('/users',                       ...cp('users_mgt','edit_profile','create'),  adminController.createUser);
+router.patch ('/users/:userId',               ...cp('users_mgt','edit_profile','update'),  adminController.updateUser);
+router.patch ('/users/:userId/deactivate',    ...cp('users_mgt','status_update','update'), adminController.deactivateUser);
+router.patch ('/users/:userId/reactivate',    ...cp('users_mgt','status_update','update'), adminController.reactivateUser);
+router.get   ('/officers',                    ...cp('users_mgt','edit_profile','read'),    adminController.listOfficers);
 
-// Streets & Rules
-router.get  ('/streets',                  ...admin, adminController.listStreets);
-router.post ('/streets',                  ...admin, adminController.createStreet);
-router.patch('/streets/:streetId/deactivate', ...admin, adminController.deactivateStreet);
-router.get  ('/parking-rules',            ...admin, adminController.listRules);
-router.patch('/parking-rules/:ruleId/toggle', ...admin, adminController.toggleRule);
-router.post ('/parking-rules',            ...admin, adminController.createRule);
+// User RBAC assignment (Super Admin only)
+router.patch ('/users/:userId/group',         ...sys, ugController.assignUserGroup);
+router.patch ('/users/:userId/supervisor',    ...sys, ugController.assignSupervisor);
 
-// Penalty Tiers
-router.get  ('/penalty-tiers',           ...adminOrSup, adminController.listTiers);
-router.post ('/penalty-tiers',           ...admin,      adminController.createTier);
-router.patch('/penalty-tiers/:tierId',   ...admin,      adminController.updateTier);
+// ─── Barangays ───────────────────────────────────────────────────────────────
+router.get   ('/barangays',                          ...cp('brgy_mgt','manage','read'),   adminController.listBarangays);
+router.post  ('/barangays',                          ...cp('brgy_mgt','manage','create'), adminController.createBarangay);
+router.patch ('/barangays/:barangayId/toggle',       ...cp('brgy_mgt','manage','update'), adminController.toggleBarangay);
+router.patch ('/barangays/:barangayId/location',     ...cp('brgy_mgt','manage','update'), adminController.setBarangayLocation);
+
+// ─── Streets & Rules ─────────────────────────────────────────────────────────
+router.get   ('/streets',                            ...cp('streets_rules','manage','read'),   adminController.listStreets);
+router.post  ('/streets',                            ...cp('streets_rules','manage','create'), adminController.createStreet);
+router.patch ('/streets/:streetId/deactivate',       ...cp('streets_rules','manage','update'), adminController.deactivateStreet);
+router.get   ('/parking-rules',                      ...cp('streets_rules','manage','read'),   adminController.listRules);
+router.patch ('/parking-rules/:ruleId/toggle',       ...cp('streets_rules','manage','update'), adminController.toggleRule);
+router.post  ('/parking-rules',                      ...cp('streets_rules','manage','create'), adminController.createRule);
+
+// ─── Penalty Tiers ───────────────────────────────────────────────────────────
+router.get   ('/penalty-tiers',                      ...cp('penalty','manage','read'),   adminController.listTiers);
+router.post  ('/penalty-tiers',                      ...cp('penalty','manage','create'), adminController.createTier);
+router.patch ('/penalty-tiers/:tierId',              ...cp('penalty','manage','update'), adminController.updateTier);
+
+// ─── User Groups (Super Admin only) ──────────────────────────────────────────
+router.get   ('/groups',                             ...sys, ugController.listGroups);
+router.post  ('/groups',                             ...sys, ugController.createGroup);
+router.patch ('/groups/:groupId',                    ...sys, ugController.updateGroup);
+router.delete('/groups/:groupId',                    ...sys, ugController.deleteGroup);
+
+// ─── Permission matrix (Super Admin only) ────────────────────────────────────
+router.get   ('/permissions',                        ...sys, ugController.listPermissions);
+router.get   ('/groups/:groupId/permissions',        ...sys, ugController.getGroupPermissions);
+router.put   ('/groups/:groupId/permissions',        ...sys, ugController.updateGroupPermissions);
+
+// ─── Audit log (Super Admin only) ────────────────────────────────────────────
+router.get   ('/audit-logs',                         ...sys, ugController.listAuditLogs);
 
 module.exports = router;

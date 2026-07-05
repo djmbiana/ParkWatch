@@ -108,9 +108,10 @@ export const adminBarangays = {
 // Admin - streets & rules
 export const adminStreets = {
   list:           () =>       request('/api/admin/streets'),
-  create:         (body) =>   request('/api/admin/streets',                    { method: 'POST',  body: JSON.stringify(body) }),
-  toggleRule:     (id) =>     request(`/api/admin/parking-rules/${id}/toggle`, { method: 'PATCH' }),
-  createRule:     (body) =>   request('/api/admin/parking-rules',              { method: 'POST',  body: JSON.stringify(body) }),
+  create:         (body) =>   request('/api/admin/streets',                          { method: 'POST',  body: JSON.stringify(body) }),
+  deactivate:     (id) =>     request(`/api/admin/streets/${id}/deactivate`,         { method: 'PATCH' }),
+  toggleRule:     (id) =>     request(`/api/admin/parking-rules/${id}/toggle`,       { method: 'PATCH' }),
+  createRule:     (body) =>   request('/api/admin/parking-rules',                    { method: 'POST',  body: JSON.stringify(body) }),
 }
 
 // Admin - penalty tiers
@@ -119,6 +120,31 @@ export const adminTiers = {
   update: (id, body) => request(`/api/admin/penalty-tiers/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   create: (body) =>     request('/api/admin/penalty-tiers',       { method: 'POST',  body: JSON.stringify(body) }),
 }
+
+// Admin - user groups (Super Admin only)
+export const adminGroups = {
+  list:               ()              => request('/api/admin/groups'),
+  create:             (body)          => request('/api/admin/groups',                         { method: 'POST',   body: JSON.stringify(body) }),
+  update:             (id, body)      => request(`/api/admin/groups/${id}`,                   { method: 'PATCH',  body: JSON.stringify(body) }),
+  delete:             (id)            => request(`/api/admin/groups/${id}`,                   { method: 'DELETE' }),
+  getPermissions:     (id)            => request(`/api/admin/groups/${id}/permissions`),
+  updatePermissions:  (id, perms)     => request(`/api/admin/groups/${id}/permissions`,       { method: 'PUT',    body: JSON.stringify({ permissions: perms }) }),
+  assignUserGroup:    (userId, gid)   => request(`/api/admin/users/${userId}/group`,          { method: 'PATCH',  body: JSON.stringify({ group_id: gid }) }),
+  assignSupervisor:   (userId, supId) => request(`/api/admin/users/${userId}/supervisor`,     { method: 'PATCH',  body: JSON.stringify({ supervisor_id: supId }) }),
+}
+
+// RBAC - permission definitions (Super Admin only)
+export const adminPermissions = {
+  list: () => request('/api/admin/permissions'),
+}
+
+// Audit logs (Super Admin only)
+export const adminAudit = {
+  list: (params = {}) => request(`/api/admin/audit-logs${qs(params)}`),
+}
+
+// My permissions — called once after login to bootstrap PermissionsContext
+export const myPermissions = () => request('/api/permissions/mine')
 
 function qs(params) {
   const s = new URLSearchParams(params).toString()

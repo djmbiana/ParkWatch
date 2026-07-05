@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { adminBarangays } from '../../services/api'
 import { useToast } from '../../components/ToastContext'
+import { usePermissions } from '../../contexts/PermissionsContext'
 import StatCard from '../../components/StatCard'
 import ConfirmModal from '../../components/ConfirmModal'
 import LoadingSpinner from '../../components/LoadingSpinner'
@@ -10,6 +11,9 @@ import BarangayLocationPicker from '../../components/BarangayLocationPicker'
 export default function AdminBarangays() {
   const { setPageTitle } = useOutletContext()
   const toast = useToast()
+  const { hasPermission } = usePermissions()
+  const canCreate = hasPermission('brgy_mgt', 'manage', 'create')
+  const canUpdate = hasPermission('brgy_mgt', 'manage', 'update')
   const [barangays, setBarangays] = useState([])
   const [loading, setLoading] = useState(true)
   const [disableTarget, setDisableTarget] = useState(null)
@@ -76,10 +80,12 @@ export default function AdminBarangays() {
         <p style={{ fontSize: 13, color: 'var(--color-text-muted)', margin: 0 }}>
           Toggle pilot enrollment · streets only visible to citizens when barangay is active
         </p>
-        <button onClick={() => { setNewBrgy({ barangay_name: '', barangay_number: '' }); setAddErr(''); setShowAdd(true) }}
-          style={{ padding: '7px 16px', borderRadius: 6, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-          + Add Barangay
-        </button>
+        {canCreate && (
+          <button onClick={() => { setNewBrgy({ barangay_name: '', barangay_number: '' }); setAddErr(''); setShowAdd(true) }}
+            style={{ padding: '7px 16px', borderRadius: 6, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+            + Add Barangay
+          </button>
+        )}
       </div>
 
       <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
@@ -117,10 +123,12 @@ export default function AdminBarangays() {
                   <td style={{ padding: '0 12px', fontSize: 13 }}>{b.streets_enrolled ?? 0}</td>
                   <td style={{ padding: '0 12px', fontSize: 13 }}>{b.reports_this_month ?? 0}</td>
                   <td style={{ padding: '0 12px' }}>
-                    <button onClick={() => setLocationTarget(b)}
-                      style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'transparent', color: b.latitude != null ? 'var(--color-resolved)' : 'var(--accent)', fontSize: 12, fontWeight: 500, cursor: 'pointer', height: 28, whiteSpace: 'nowrap' }}>
-                      {b.latitude != null ? 'Edit pin' : 'Set pin'}
-                    </button>
+                    {canUpdate && (
+                      <button onClick={() => setLocationTarget(b)}
+                        style={{ padding: '4px 12px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'transparent', color: b.latitude != null ? 'var(--color-resolved)' : 'var(--accent)', fontSize: 12, fontWeight: 500, cursor: 'pointer', height: 28, whiteSpace: 'nowrap' }}>
+                        {b.latitude != null ? 'Edit pin' : 'Set pin'}
+                      </button>
+                    )}
                   </td>
                   <td style={{ padding: '0 12px' }}>
                     {b.is_active
@@ -129,7 +137,7 @@ export default function AdminBarangays() {
                     }
                   </td>
                   <td style={{ padding: '0 12px' }}>
-                    {b.is_active ? (
+                    {canUpdate && (b.is_active ? (
                       <button onClick={() => setDisableTarget(b)}
                         style={{ padding: '4px 14px', borderRadius: 6, background: '#EF4444', color: '#fff', border: 'none', fontSize: 12, fontWeight: 500, cursor: 'pointer', height: 28 }}>
                         Disable
@@ -139,7 +147,7 @@ export default function AdminBarangays() {
                         style={{ padding: '4px 14px', borderRadius: 6, background: '#10B981', color: '#fff', border: 'none', fontSize: 12, fontWeight: 500, cursor: 'pointer', height: 28, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: toggleLoading[b.barangay_id] ? 0.7 : 1 }}>
                         {toggleLoading[b.barangay_id] && <LoadingSpinner size={11} color="#fff" />} Enable
                       </button>
-                    )}
+                    ))}
                   </td>
                 </tr>
               ))}
