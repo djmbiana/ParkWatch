@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useOutletContext } from 'react-router-dom'
-import { ChevronLeft } from 'lucide-react'
+import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { reports } from '../../services/api'
 import { useToast } from '../../components/ToastContext'
 import { getStoredUser } from '../../utils/auth'
@@ -41,6 +41,7 @@ export default function OfficerReportDetail() {
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [lightbox, setLightbox] = useState(false)
+  const [slideshowIdx, setSlideshowIdx] = useState(null)
   const [showResolve, setShowResolve] = useState(false)
   const [resolveOutcome, setResolveOutcome] = useState('')
   const [ticketRef, setTicketRef] = useState('')
@@ -126,10 +127,38 @@ export default function OfficerReportDetail() {
             {report.additional_photos?.length > 0 && (
               <>
                 <SectionHeader>Additional Photos ({report.additional_photos.length})</SectionHeader>
+                {slideshowIdx !== null && (
+                  <div style={{ position: 'relative', marginBottom: 8, borderRadius: 8, overflow: 'hidden', background: '#000', userSelect: 'none' }}>
+                    <img src={report.additional_photos[slideshowIdx]} alt={`Evidence ${slideshowIdx + 1}`}
+                      style={{ width: '100%', maxHeight: 260, objectFit: 'contain', display: 'block' }} />
+                    <button onClick={() => setSlideshowIdx(null)}
+                      style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '50%', width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}>
+                      <X size={14} />
+                    </button>
+                    {report.additional_photos.length > 1 && (
+                      <>
+                        <button onClick={() => setSlideshowIdx(i => (i - 1 + report.additional_photos.length) % report.additional_photos.length)}
+                          style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '50%', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}>
+                          <ChevronLeft size={18} />
+                        </button>
+                        <button onClick={() => setSlideshowIdx(i => (i + 1) % report.additional_photos.length)}
+                          style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: '50%', width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: '#fff' }}>
+                          <ChevronRight size={18} />
+                        </button>
+                        <div style={{ position: 'absolute', bottom: 8, right: 12, background: 'rgba(0,0,0,0.5)', borderRadius: 999, padding: '2px 8px', fontSize: 11, color: '#fff', fontWeight: 600 }}>
+                          {slideshowIdx + 1} / {report.additional_photos.length}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                   {report.additional_photos.map((url, i) => (
-                    <img key={i} src={url} alt={`Additional evidence ${i + 1}`} onClick={() => setLightbox(url)}
-                      style={{ width: 88, height: 88, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--color-border)', cursor: 'pointer' }} />
+                    <img key={i} src={url} alt={`Additional evidence ${i + 1}`}
+                      onClick={() => setSlideshowIdx(prev => prev === i ? null : i)}
+                      style={{ width: 72, height: 72, objectFit: 'cover', borderRadius: 8, cursor: 'pointer',
+                        border: slideshowIdx === i ? '2px solid var(--accent)' : '1px solid var(--color-border)',
+                        opacity: slideshowIdx === i ? 1 : 0.85, transition: 'border 0.15s, opacity 0.15s' }} />
                   ))}
                 </div>
               </>

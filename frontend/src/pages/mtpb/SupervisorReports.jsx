@@ -9,15 +9,81 @@ import LoadingSpinner from '../../components/LoadingSpinner'
 import ViolationHeatMap from '../../components/ViolationHeatMap'
 import useAutoRefresh from '../../hooks/useAutoRefresh'
 
-function downloadCsv(filename, rows) {
-  const csv = Papa.unparse(rows)
-  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+function downloadCsv(filename, rows, title) {
+  const lines = []
+  if (title) {
+    lines.push(title)
+    lines.push(`Generated: ${new Date().toLocaleString('en-PH')}`)
+    lines.push('')
+  }
+  lines.push(Papa.unparse(rows))
+  const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
   a.download = filename
   a.click()
   URL.revokeObjectURL(url)
+}
+
+function openHtmlReport(s, repeatOffenders) {
+  const metrics = [
+    { label: 'Reports Submitted', value: s.reports_submitted ?? 0 },
+    { label: 'Reports Resolved', value: s.reports_resolved ?? 0 },
+    { label: 'Pending', value: s.pending_now ?? 0 },
+    { label: 'Resolution Rate', value: `${s.resolution_rate ?? 0}%` },
+    { label: 'Avg. Verify Time', value: `${s.avg_verify_min ?? 0}m` },
+    { label: 'Avg. MTPB Response', value: `${s.avg_mtpb_response_min ?? 0}m` },
+  ]
+  const top = repeatOffenders.slice(0, 8)
+  const maxV = Math.max(...top.map(o => o.total_violations ?? 0), 1)
+  const barW = 48, barGap = 16, chartH = 160, labelH = 30
+  const chartW = (barW + barGap) * top.length + barGap
+  const bars = top.map((o, i) => {
+    const h = Math.round(((o.total_violations ?? 0) / maxV) * chartH)
+    const x = barGap + i * (barW + barGap)
+    const plate = o.plate_number ?? o.vehicle?.plate_number ?? '-'
+    return `<rect x="${x}" y="${chartH - h}" width="${barW}" height="${h}" fill="#3DA044" rx="4"/>
+      <text x="${x + barW / 2}" y="${chartH - h - 5}" text-anchor="middle" font-size="11" font-weight="600" fill="#1F2937">${o.total_violations ?? 0}</text>
+      <text x="${x + barW / 2}" y="${chartH + 14}" text-anchor="middle" font-size="9" fill="#6B7280">${plate}</text>`
+  }).join('')
+
+  const tRows = top.map(o => `<tr>
+    <td>${o.plate_number ?? o.vehicle?.plate_number ?? '-'}</td>
+    <td style="text-align:right;font-weight:600">${o.total_violations ?? '-'}</td>
+    <td>${o.last_violation_date ? new Date(o.last_violation_date).toLocaleDateString('en-PH') : '-'}</td>
+  </tr>`).join('')
+
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"/>
+<title>ParkWatch Enforcement Report</title>
+<style>
+body{font-family:'Segoe UI',sans-serif;margin:0;padding:32px;background:#F9FAFB;color:#0F1117}
+h1{font-size:22px;font-weight:800;color:#3DA044;margin-bottom:4px}
+.sub{font-size:13px;color:#6B7280;margin-bottom:32px}
+.metrics{display:flex;flex-wrap:wrap;gap:16px;margin-bottom:32px}
+.metric{background:#fff;border:1px solid #E5E7EB;border-radius:10px;padding:16px 24px;min-width:110px}
+.metric .val{font-size:28px;font-weight:800}
+.metric .lbl{font-size:11px;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.05em;margin-top:4px}
+h2{font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin:0 0 16px}
+.section{background:#fff;border:1px solid #E5E7EB;border-radius:12px;padding:24px;margin-bottom:24px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;font-size:11px;font-weight:600;color:#6B7280;text-transform:uppercase;letter-spacing:.06em;padding:8px 10px;border-bottom:2px solid #E5E7EB}
+td{padding:8px 10px;border-bottom:1px solid #F3F4F6}
+@media print{body{background:#fff}}
+</style></head><body>
+<h1>ParkWatch</h1>
+<div class="sub">Enforcement Activity Report &mdash; Generated ${new Date().toLocaleString('en-PH')}</div>
+<div class="metrics">${metrics.map(m => `<div class="metric"><div class="val">${m.value}</div><div class="lbl">${m.label}</div></div>`).join('')}</div>
+${top.length > 0 ? `<div class="section"><h2>Repeat Offenders (Top ${top.length})</h2>
+<svg width="${chartW}" height="${chartH + labelH + 8}" style="display:block;margin-bottom:16px;overflow:visible">
+  ${bars}<line x1="0" y1="${chartH}" x2="${chartW}" y2="${chartH}" stroke="#E5E7EB"/>
+</svg>
+<table><thead><tr><th>Plate</th><th style="text-align:right">Violations</th><th>Last Offense</th></tr></thead>
+<tbody>${tRows}</tbody></table></div>` : ''}
+</body></html>`
+
+  const w = window.open('', '_blank')
+  if (w) { w.document.write(html); w.document.close() }
 }
 
 export default function SupervisorReports() {
@@ -57,10 +123,10 @@ export default function SupervisorReports() {
       const ro = await reports.repeatOffenders()
       const arr = Array.isArray(ro) ? ro : (ro?.offenders ?? ro?.data ?? [])
       downloadCsv('repeat-offenders.csv', arr.map(r => ({
-        plate_number: r.plate_number ?? r.vehicle?.plate_number,
-        total_violations: r.total_violations,
-        last_violation_date: r.last_violation_date ?? r.submitted_at,
-      })))
+        'Plate Number': r.plate_number ?? r.vehicle?.plate_number,
+        'Total Violations': r.total_violations,
+        'Last Violation Date': r.last_violation_date ? new Date(r.last_violation_date).toLocaleDateString('en-PH') : '-',
+      })), 'ParkWatch - Repeat Offender Report')
     } catch { toast('Failed to generate report.', 'error') }
     finally { setGenLoading('') }
   }
@@ -72,7 +138,29 @@ export default function SupervisorReports() {
       if (startDate) params.start_date = startDate
       if (endDate) params.end_date = endDate
       const s = await reports.analyticsSum(params)
-      downloadCsv('enforcement-activity.csv', [s])
+      downloadCsv('enforcement-activity.csv', [{
+        'Reports Submitted': s.reports_submitted ?? 0,
+        'Reports Resolved': s.reports_resolved ?? 0,
+        'Pending': s.pending_now ?? 0,
+        'Resolution Rate (%)': s.resolution_rate ?? 0,
+        'Avg. Verify Time (min)': s.avg_verify_min ?? 0,
+        'Avg. MTPB Response (min)': s.avg_mtpb_response_min ?? 0,
+        'Total Repeat Offenders': s.total_repeat_offenders ?? 0,
+        'Total Fines Issued (PHP)': s.total_fines_issued ?? 0,
+      }], 'ParkWatch - Enforcement Activity Report')
+    } catch { toast('Failed to generate report.', 'error') }
+    finally { setGenLoading('') }
+  }
+
+  const handleHtmlReport = async () => {
+    setGenLoading('html')
+    try {
+      const params = {}
+      if (startDate) params.start_date = startDate
+      if (endDate) params.end_date = endDate
+      const [s, ro] = await Promise.all([reports.analyticsSum(params), reports.repeatOffenders()])
+      const arr = Array.isArray(ro) ? ro : (ro?.offenders ?? ro?.data ?? [])
+      openHtmlReport(s, arr)
     } catch { toast('Failed to generate report.', 'error') }
     finally { setGenLoading('') }
   }
@@ -123,11 +211,18 @@ export default function SupervisorReports() {
               <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Fines Issued</div>
             </div>
           </div>
-          <button onClick={handleGenRepeat} disabled={genLoading === 'repeat'}
-            style={{ width: '100%', padding: '10px', borderRadius: 6, background: '#fff', color: '#0F1117', border: 'none', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: genLoading === 'repeat' ? 0.7 : 1 }}>
-            {genLoading === 'repeat' ? <LoadingSpinner size={14} color="#0F1117" /> : null}
-            Generate Report →
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={handleGenRepeat} disabled={!!genLoading}
+              style={{ flex: 1, padding: '10px', borderRadius: 6, background: '#fff', color: '#0F1117', border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: genLoading === 'repeat' ? 0.7 : 1 }}>
+              {genLoading === 'repeat' ? <LoadingSpinner size={14} color="#0F1117" /> : null}
+              CSV Export
+            </button>
+            <button onClick={handleHtmlReport} disabled={!!genLoading}
+              style={{ flex: 1, padding: '10px', borderRadius: 6, background: 'rgba(255,255,255,0.15)', color: '#fff', border: '1px solid rgba(255,255,255,0.4)', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: genLoading === 'html' ? 0.7 : 1 }}>
+              {genLoading === 'html' ? <LoadingSpinner size={14} color="#fff" /> : null}
+              HTML Report
+            </button>
+          </div>
         </div>
 
         {/* Enforcement Activity */}
@@ -149,10 +244,10 @@ export default function SupervisorReports() {
               <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Resolution Rate</div>
             </div>
           </div>
-          <button onClick={handleGenEnforcement} disabled={genLoading === 'enforcement'}
-            style={{ width: '100%', padding: '10px', borderRadius: 6, background: 'rgba(255,255,255,0.2)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: genLoading === 'enforcement' ? 0.7 : 1 }}>
+          <button onClick={handleGenEnforcement} disabled={!!genLoading}
+            style={{ width: '100%', padding: '10px', borderRadius: 6, background: 'rgba(255,255,255,0.2)', color: '#fff', border: '1px solid rgba(255,255,255,0.3)', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: genLoading === 'enforcement' ? 0.7 : 1 }}>
             {genLoading === 'enforcement' ? <LoadingSpinner size={14} color="#fff" /> : null}
-            Generate Report →
+            CSV Export →
           </button>
         </div>
       </div>

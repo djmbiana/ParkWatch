@@ -87,9 +87,9 @@ const barangayQueue = async (req, res, next) => {
   try {
     const [rows] = await pool.execute(
       `${REPORT_SELECT}
-       WHERE r.status = 'pending'
+       WHERE r.status IN ('pending', 'contested')
          AND COALESCE(r.barangay_id, s.barangay_id) = ?
-       ORDER BY v.is_repeat_offender DESC, r.submitted_at ASC`,
+       ORDER BY r.status = 'contested' DESC, v.is_repeat_offender DESC, r.submitted_at ASC`,
       [barangayId]
     );
 

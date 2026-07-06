@@ -118,6 +118,7 @@ CREATE TABLE IF NOT EXISTS VIOLATION_REPORTS (
   street_id           INT,
   barangay_id         INT,                               -- [ext] denormalized from street for faster queries
   violation_type      VARCHAR(100),
+  plate_type          ENUM('regular','conduction','no_plate') NOT NULL DEFAULT 'regular',  -- [mig029]
   photo_path          VARCHAR(300),                      -- GCS object path, e.g. gs://bucket/reports/uuid.jpg
   additional_photos   TEXT,                              -- [mig024] JSON array of extra evidence photo paths
   ocr_raw_response    TEXT,                              -- full JSON from Google Cloud Vision API

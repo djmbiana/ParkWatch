@@ -3,6 +3,7 @@ const adminController = require('../controllers/adminController');
 const ugController    = require('../controllers/userGroupsController');
 const { authenticate } = require('../middleware/auth');
 const { checkPermission, requireSystemRole } = require('../middleware/checkPermission');
+const { authorize, ROLES } = require('../middleware/roleMiddleware');
 
 const router = express.Router();
 
@@ -17,6 +18,11 @@ router.patch ('/users/:userId',               ...cp('users_mgt','edit_profile','
 router.patch ('/users/:userId/deactivate',    ...cp('users_mgt','status_update','update'), adminController.deactivateUser);
 router.patch ('/users/:userId/reactivate',    ...cp('users_mgt','status_update','update'), adminController.reactivateUser);
 router.get   ('/officers',                    ...cp('users_mgt','edit_profile','read'),    adminController.listOfficers);
+router.get   ('/officers/:officerId/stats',   authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), adminController.getOfficerStats);
+
+// ─── System Config ───────────────────────────────────────────────────────────
+router.get   ('/system-config/escalation',    authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), adminController.getEscalationConfig);
+router.patch ('/system-config/escalation',    authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), adminController.updateEscalationConfig);
 
 // User RBAC assignment (Super Admin only)
 router.patch ('/users/:userId/group',         ...sys, ugController.assignUserGroup);

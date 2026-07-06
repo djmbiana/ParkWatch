@@ -67,7 +67,7 @@ export default function BarangayDashboard() {
       <div style={{ display: 'flex', gap: 16, marginBottom: 28, flexWrap: 'wrap' }}>
         <StatCard value={stats.pending ?? 0}          label="Pending Today" />
         <StatCard value={stats.verified ?? 0}         label="Verified Today" color="var(--color-verified)" />
-        <StatCard value={stats.rejected ?? 0}         label="Rejected Today" color="var(--color-rejected)" />
+        <StatCard value={stats.rejected ?? 0}         label="Declined Today" color="var(--color-rejected)" />
         <StatCard value={`${stats.avg_review_min ?? 0} min`} label="Avg. Review Time" />
       </div>
 

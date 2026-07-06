@@ -1,5 +1,5 @@
 import { test, expect, request } from '@playwright/test';
-import { API_URL } from '../helpers/testData';
+import { API_URL, ESCALATION_CONFIG_KEYS } from '../helpers/testData';
 import { getToken } from '../helpers/auth';
 
 /**
@@ -7,10 +7,11 @@ import { getToken } from '../helpers/auth';
  * Target: "Re-notification and escalation triggered on schedule with no manual
  * intervention."
  *
- * The time-based escalation itself runs from a cron job (backend/src/jobs); a
- * full schedule test needs DB time travel. Here we verify the API-observable
- * invariants: the queues exist and are role-scoped, the status guard blocks
- * out-of-order transitions, and escalated reports carry an escalation reason.
+ * The time-based escalation runs from a cron job; a full schedule test needs DB
+ * time travel. Here we verify the API-observable invariants: queues exist and
+ * are role-scoped, the status guard blocks out-of-order transitions, escalated
+ * reports carry an escalation reason, and (new: migration 032) the supervisor
+ * can configure the escalation timing windows via SYSTEM_CONFIG.
  */
 function rowsOf(body: any): any[] {
   const d = body?.data ?? body;
@@ -36,7 +37,6 @@ test.describe('SO5 — Report Queue, Re-notification & Escalation', () => {
     const res = await ctx.post(`${API_URL}/api/test/trigger-escalation`, {
       headers: { Authorization: `Bearer ${await getToken('admin')}` },
     });
-    // Either a test-only trigger exists (200) or escalation is cron-only (404).
     expect([200, 404]).toContain(res.status());
     await ctx.dispose();
   });
@@ -53,11 +53,8 @@ test.describe('SO5 — Report Queue, Re-notification & Escalation', () => {
     await ctx.dispose();
   });
 
-  test('TC-SO5-04: Status guard blocks out-of-order transitions (dispatch an escalated report → 422)', async () => {
+  test('TC-SO5-04: Status guard blocks out-of-order transitions (dispatch escalated → 422)', async () => {
     const ctx = await request.newContext();
-    // Find an escalated report and try to DISPATCH it. dispatch is only legal
-    // from 'acknowledged', so the centralized statusGuard must reject it (422)
-    // rather than letting the lifecycle skip a stage.
     const supRes = await ctx.get(`${API_URL}/api/reports/queue/supervisor`, {
       headers: { Authorization: `Bearer ${await getToken('supervisor')}` },
     });
@@ -71,25 +68,104 @@ test.describe('SO5 — Report Queue, Re-notification & Escalation', () => {
     await ctx.dispose();
   });
 
-  test('TC-SO5-05: Escalated reports carry an escalation reason (two-stage evidence)', async () => {
+  test('TC-SO5-05: Escalated reports carry a non-empty escalation reason', async () => {
     const ctx = await request.newContext();
     const res = await ctx.get(`${API_URL}/api/reports/queue/supervisor`, {
       headers: { Authorization: `Bearer ${await getToken('supervisor')}` },
     });
-    // Only currently-escalated reports carry an active reason; a report that was
-    // escalated and later resolved keeps is_escalated=true but clears the reason.
     const escalated = rowsOf(await res.json()).filter((r) => r.status === 'escalated');
     if (escalated.length === 0) {
       test.skip(true, 'No escalated reports present to verify escalation_reason.');
     }
     for (const r of escalated) {
-      // eslint-disable-next-line no-console
-      console.log(`[SO5] report ${r.report_id} escalation_reason: ${r.escalation_reason ?? '(null)'}`);
-      // The escalated row must surface a non-empty reason — evidence that the
-      // two-stage re-notification → escalation flow recorded WHY it escalated.
       expect(r.escalation_reason).toBeTruthy();
       expect(String(r.escalation_reason).toLowerCase()).toContain('re-notification');
     }
+    await ctx.dispose();
+  });
+
+  // --- Escalation config tests (migration 032 SYSTEM_CONFIG) ---
+
+  test('TC-SO5-06: GET /admin/system-config/escalation returns current windows', async () => {
+    const ctx = await request.newContext();
+    const res = await ctx.get(`${API_URL}/api/admin/system-config/escalation`, {
+      headers: { Authorization: `Bearer ${await getToken('supervisor')}` },
+    });
+    expect(res.status()).toBe(200);
+    const rows: any[] = (await res.json()) ?? [];
+    const keys = rows.map((r: any) => r.config_key);
+    expect(keys).toContain(ESCALATION_CONFIG_KEYS.responseWindow);
+    expect(keys).toContain(ESCALATION_CONFIG_KEYS.renotifyWindow);
+
+    const resp = rows.find((r: any) => r.config_key === ESCALATION_CONFIG_KEYS.responseWindow);
+    expect(parseInt(resp.config_value, 10)).toBeGreaterThan(0);
+    await ctx.dispose();
+  });
+
+  test('TC-SO5-07: Supervisor can update escalation windows via PATCH', async () => {
+    const ctx = await request.newContext();
+
+    // Read current values first.
+    const getRes = await ctx.get(`${API_URL}/api/admin/system-config/escalation`, {
+      headers: { Authorization: `Bearer ${await getToken('supervisor')}` },
+    });
+    const before: any[] = (await getRes.json()) ?? [];
+    const origResponse = parseInt(
+      before.find((r: any) => r.config_key === ESCALATION_CONFIG_KEYS.responseWindow)?.config_value ?? '60',
+      10,
+    );
+
+    // Update to a different value.
+    const newVal = origResponse === 60 ? 45 : 60;
+    const patchRes = await ctx.patch(`${API_URL}/api/admin/system-config/escalation`, {
+      headers: { Authorization: `Bearer ${await getToken('supervisor')}` },
+      data: { response_window_minutes: newVal },
+    });
+    expect(patchRes.status()).toBe(200);
+
+    // Verify the change persisted.
+    const getRes2 = await ctx.get(`${API_URL}/api/admin/system-config/escalation`, {
+      headers: { Authorization: `Bearer ${await getToken('supervisor')}` },
+    });
+    const after: any[] = (await getRes2.json()) ?? [];
+    const updated = parseInt(
+      after.find((r: any) => r.config_key === ESCALATION_CONFIG_KEYS.responseWindow)?.config_value ?? '0',
+      10,
+    );
+    expect(updated).toBe(newVal);
+
+    // Restore original value so other tests aren't affected.
+    await ctx.patch(`${API_URL}/api/admin/system-config/escalation`, {
+      headers: { Authorization: `Bearer ${await getToken('supervisor')}` },
+      data: { response_window_minutes: origResponse },
+    });
+    await ctx.dispose();
+  });
+
+  test('TC-SO5-08: Escalation config rejects out-of-range values (422)', async () => {
+    const ctx = await request.newContext();
+    const res = await ctx.patch(`${API_URL}/api/admin/system-config/escalation`, {
+      headers: { Authorization: `Bearer ${await getToken('supervisor')}` },
+      data: { response_window_minutes: 9999 }, // > 1440 max
+    });
+    expect(res.status()).toBe(400);
+    await ctx.dispose();
+  });
+
+  test('TC-SO5-09: MTPB officer cannot update escalation config (403)', async () => {
+    const ctx = await request.newContext();
+    const res = await ctx.patch(`${API_URL}/api/admin/system-config/escalation`, {
+      headers: { Authorization: `Bearer ${await getToken('officer')}` },
+      data: { response_window_minutes: 30 },
+    });
+    expect(res.status()).toBe(403);
+    await ctx.dispose();
+  });
+
+  test('TC-SO5-10: Escalation config requires authentication (401 without token)', async () => {
+    const ctx = await request.newContext();
+    const res = await ctx.get(`${API_URL}/api/admin/system-config/escalation`);
+    expect(res.status()).toBe(401);
     await ctx.dispose();
   });
 });

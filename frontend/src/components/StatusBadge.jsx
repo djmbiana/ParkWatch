@@ -4,8 +4,9 @@ const STATUS_MAP = {
   acknowledged: { label: 'Acknowledged', color: 'var(--color-ack)',         bg: 'var(--color-ack-bg)' },
   dispatched:   { label: 'Dispatched',   color: 'var(--color-dispatched)',  bg: 'var(--color-dispatched-bg)' },
   resolved:     { label: 'Resolved',     color: 'var(--color-resolved)',    bg: 'var(--color-resolved-bg)' },
-  rejected:     { label: 'Rejected',     color: 'var(--color-rejected)',    bg: 'var(--color-rejected-bg)' },
+  rejected:     { label: 'Declined',     color: 'var(--color-rejected)',    bg: 'var(--color-rejected-bg)' },
   escalated:    { label: 'Escalated',    color: 'var(--color-escalated)',   bg: 'var(--color-escalated-bg)' },
+  contested:    { label: 'Under Review', color: '#7C3AED',                  bg: '#F5F3FF' },
 }
 
 export default function StatusBadge({ status }) {

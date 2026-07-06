@@ -69,9 +69,9 @@ export default function StatusTimeline({ report }) {
   const rows = []
 
   // Rejected: timeline stops after Submitted.
-  if (status === "rejected") {
+  if (status === "rejected" || status === "contested") {
     rows.push({ variant: "done", label: "Submitted", sub: formatDateTime(report.submitted_at) })
-    rows.push({ variant: "danger", label: "Rejected", sub: formatDateTime(report.verified_at) })
+    rows.push({ variant: "danger", label: "Declined", sub: formatDateTime(report.verified_at) })
   } else {
     // First step with no timestamp is the current (in-progress) stage.
     const firstPending = STEPS.findIndex((s) => !report[s.tsField])
@@ -112,7 +112,7 @@ export default function StatusTimeline({ report }) {
         ))}
       </div>
 
-      {status === "rejected" && report.rejection_reason && (
+      {(status === "rejected" || status === "contested") && report.rejection_reason && (
         <div style={{ marginTop: 12, background: "var(--c-danger-lt)", borderRadius: 10, padding: 12 }}>
           <p style={{ fontSize: 13, color: "var(--c-danger)", fontWeight: 500 }}>{report.rejection_reason}</p>
         </div>

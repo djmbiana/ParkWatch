@@ -8,6 +8,14 @@ import { loginAs } from '../helpers/auth';
  * Page titles render in PortalLayout's top bar (the <header> = "banner" role);
  * the same words also appear as sidebar nav links, so title assertions are
  * scoped to the banner to stay unambiguous.
+ *
+ * New portals / features covered:
+ *   - Supervisor Officers: officer table with Supervisor + Total Resolved columns
+ *   - Supervisor Escalated: collapsible config panel + 3-tab Handle modal
+ *   - Supervisor Reports: HTML Report button
+ *   - Barangay plate search: filter toggle
+ *   - Officer report detail: Additional Photos slideshow section
+ *   - "Declined" label throughout (renamed from "Rejected")
  */
 const titleInBanner = (page: any, text: string) => page.getByRole('banner').getByText(text);
 
@@ -21,7 +29,6 @@ test.describe('Portal Smoke Tests', () => {
     await loginAs('barangay', page, '/barangay/queue');
     await page.waitForResponse((r) => r.url().includes('/queue/barangay')).catch(() => {});
     const content = (await page.locator('main').textContent()) ?? '';
-    // No raw email addresses should appear in the queue view.
     expect(content).not.toMatch(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
   });
 
@@ -63,10 +70,24 @@ test.describe('Portal Smoke Tests', () => {
     await expect(page.getByText(/Updated.*ago/)).toBeVisible({ timeout: 10000 });
   });
 
+  test('TC-P-09: A 401 from the API clears the session and redirects to /login', async ({ page }) => {
+    await loginAs('barangay', page);
+    await page.route('**/api/reports/queue/barangay**', (route) =>
+      route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: false, message: 'Session expired' }),
+      }),
+    );
+    await page.goto('/barangay/queue');
+    await expect(page).toHaveURL(/login/, { timeout: 10000 });
+    const token = await page.evaluate((keys) => localStorage.getItem(keys.token), STORAGE);
+    expect(token).toBeNull();
+  });
+
   test('TC-P-10: /privacy page is publicly accessible without authentication', async ({ page }) => {
     await page.goto('/privacy');
     await expect(page).not.toHaveURL(/login/);
-    // The notice must render actual content, not a blank or error page.
     await expect(page.getByText(/Privacy Notice/i).first()).toBeVisible({ timeout: 8000 });
   });
 
@@ -75,7 +96,6 @@ test.describe('Portal Smoke Tests', () => {
     await page.waitForResponse((r) => r.url().includes('/queue/mtpb')).catch(() => {});
     await page.waitForTimeout(1500);
 
-    // Filter to rows that contain an action button — skips the empty-state <tr>.
     const actionableRows = page
       .getByRole('table')
       .locator('tbody tr')
@@ -87,10 +107,7 @@ test.describe('Portal Smoke Tests', () => {
     }
 
     await actionableRows.first().getByRole('button').click();
-
-    // Must land on the detail page — not stay on the queue with a modal.
     await expect(page).toHaveURL(/\/mtpb\/officer\/reports\/\d+/, { timeout: 8000 });
-    // The queue title should no longer be visible (we navigated away).
     await expect(titleInBanner(page, 'Enforcement Queue')).toHaveCount(0);
   });
 
@@ -99,18 +116,130 @@ test.describe('Portal Smoke Tests', () => {
     await expect(titleInBanner(page, 'Barangay Management')).toBeVisible({ timeout: 10000 });
   });
 
-  test('TC-P-09: A 401 from the API clears the session and redirects to /login', async ({ page }) => {
-    // Start from a genuine, valid barangay session so RoleRoute lets the page
-    // mount; then force the queue API to answer 401 (session-expired) to drive
-    // the api.js handler that clears storage and redirects. (An invalid token
-    // returns 403, which by design does NOT log the user out.)
-    await loginAs('barangay', page);
-    await page.route('**/api/reports/queue/barangay**', (route) =>
-      route.fulfill({ status: 401, contentType: 'application/json', body: JSON.stringify({ success: false, message: 'Session expired' }) }),
+  // --- New feature smoke tests ---
+
+  test('TC-P-13: Supervisor officers page loads with expected columns', async ({ page }) => {
+    await loginAs('supervisor', page, '/mtpb/supervisor/officers');
+    await expect(titleInBanner(page, 'Officers')).toBeVisible({ timeout: 10000 });
+    // New columns from updated listOfficers query.
+    await expect(page.getByText('Supervisor', { exact: false }).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Total Resolved', { exact: false }).first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test('TC-P-14: Supervisor officers page shows officer linked to supervisor', async ({ page }) => {
+    await loginAs('supervisor', page, '/mtpb/supervisor/officers');
+    await page.waitForTimeout(2000);
+    // officer@test.com is seeded with supervisor_id = supervisor@test.com.
+    // The "Test Supervisor" name should appear in the Supervisor column.
+    await expect(page.getByText('Test Supervisor').first()).toBeVisible({ timeout: 10000 });
+  });
+
+  test('TC-P-15: Clicking an officer row opens a profile modal with stats', async ({ page }) => {
+    await loginAs('supervisor', page, '/mtpb/supervisor/officers');
+    await page.waitForTimeout(2000);
+
+    const rows = page.locator('table tbody tr');
+    const count = await rows.count();
+    if (count === 0) {
+      test.skip(true, 'No officer rows in table.');
+      return;
+    }
+    await rows.first().click();
+    // Profile modal should open showing stat pills or officer name.
+    await expect(page.getByText(/Resolved Total|Active|Avg\. Resolve/i).first()).toBeVisible({
+      timeout: 8000,
+    });
+  });
+
+  test('TC-P-16: Supervisor escalated page has collapsible escalation config panel', async ({ page }) => {
+    await loginAs('supervisor', page, '/mtpb/supervisor/escalated');
+    await expect(page.getByText('Escalation Timing Settings')).toBeVisible({ timeout: 10000 });
+    // Expand the panel.
+    await page.getByText('Escalation Timing Settings').click();
+    await expect(page.getByText('Response Window', { exact: false })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText('Re-notify Window', { exact: false })).toBeVisible({ timeout: 5000 });
+  });
+
+  test('TC-P-17: Supervisor escalated Handle modal has View Details tab', async ({ page }) => {
+    await loginAs('supervisor', page, '/mtpb/supervisor/escalated');
+    await page.waitForTimeout(2000);
+
+    const handleBtn = page.getByRole('button', { name: 'Handle' }).first();
+    const count = await handleBtn.count();
+    if (count === 0) {
+      test.skip(true, 'No escalated reports to test modal tabs.');
+      return;
+    }
+    await handleBtn.click();
+    // Three tabs should be visible: View Details, Assign to Officer, Resolve Directly.
+    await expect(page.getByRole('button', { name: 'View Details' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Assign to Officer' })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('button', { name: 'Resolve Directly' })).toBeVisible({ timeout: 5000 });
+  });
+
+  test('TC-P-18: Supervisor reports page has both CSV Export and HTML Report buttons', async ({ page }) => {
+    await loginAs('supervisor', page, '/mtpb/supervisor/reports');
+    await expect(page.getByRole('button', { name: /CSV Export/i }).first()).toBeVisible({ timeout: 10000 });
+    await expect(page.getByRole('button', { name: /HTML Report/i })).toBeVisible({ timeout: 10000 });
+  });
+
+  test('TC-P-19: Barangay plate search has a filter toggle button', async ({ page }) => {
+    await loginAs('barangay', page, '/barangay/plate-search');
+    await expect(page.locator('button').filter({ hasText: /filter/i }).first()
+      .or(page.locator('button[aria-label*="filter" i]'))
+    ).toBeVisible({ timeout: 10000 });
+  });
+
+  test('TC-P-20: Barangay queue stat card says "Declined Today" (not "Rejected Today")', async ({ page }) => {
+    await loginAs('barangay', page, '/barangay/queue');
+    await expect(page.getByText('Declined Today', { exact: false })).toBeVisible({ timeout: 10000 });
+    await expect(page.getByText('Rejected Today', { exact: false })).toHaveCount(0);
+  });
+
+  test('TC-P-21: Supervisor heatmap renders without JS errors', async ({ page }) => {
+    const errors: string[] = [];
+    page.on('pageerror', (e) => errors.push(e.message));
+    await loginAs('supervisor', page, '/mtpb/supervisor/reports');
+    await page.waitForTimeout(4000); // allow map to initialise
+    // Filter out known harmless Leaflet CSS loading warnings.
+    const real = errors.filter(
+      (e) => !e.toLowerCase().includes('leaflet') && !e.toLowerCase().includes('favicon'),
     );
-    await page.goto('/barangay/queue');
-    await expect(page).toHaveURL(/login/, { timeout: 10000 });
-    const token = await page.evaluate((keys) => localStorage.getItem(keys.token), STORAGE);
-    expect(token).toBeNull();
+    expect(real).toEqual([]);
+  });
+
+  test('TC-P-22: Officer report detail shows Additional Photos section', async ({ page }) => {
+    await loginAs('officer', page);
+
+    // Mock a report with additional_photos so we can verify the section renders.
+    await page.route('**/api/reports/999', async (route) => {
+      if (route.request().method() !== 'GET') return route.continue();
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            report_id: 999, status: 'verified', violation_type: 'Double Parking',
+            submitted_at: new Date().toISOString(),
+            photo_url: 'https://via.placeholder.com/600x400.jpg',
+            additional_photos: [
+              'https://via.placeholder.com/400x300.jpg',
+              'https://via.placeholder.com/400x300b.jpg',
+            ],
+            vehicle: { plate_number: 'ZZZ 9999', history: [] },
+            street: { street_name: 'Adriatico Street', barangay_name: 'Barangay 726' },
+            penalty_tier: { tier_name: '1st Offense', fine_amount: 0 },
+            reporter: { anonymous_alias: 'Reporter #555' },
+          },
+        }),
+      });
+    });
+
+    await page.goto('/mtpb/officer/reports/999');
+    await expect(page.getByText('Additional Photos (2)')).toBeVisible({ timeout: 8000 });
+    // Two thumbnail images should be rendered.
+    const thumbs = page.locator('img[alt*="Additional evidence"]');
+    await expect(thumbs).toHaveCount(2);
   });
 });

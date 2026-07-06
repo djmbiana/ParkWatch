@@ -79,6 +79,7 @@ export const reports = {
   dispatch:       (id) =>       request(`/api/reports/${id}/dispatch`,    { method: 'PATCH' }),
   resolve:        (id, body) => request(`/api/reports/${id}/resolve`,     { method: 'PATCH', body: JSON.stringify(body) }),
   assign:         (id, body) => request(`/api/reports/${id}/assign`,      { method: 'PATCH', body: JSON.stringify(body) }),
+  renderAppealVerdict: (id, verdict, verdict_notes) => request(`/api/reports/${id}/appeal-verdict`, { method: 'PATCH', body: JSON.stringify({ verdict, verdict_notes }) }),
 }
 
 // Vehicles
@@ -93,7 +94,14 @@ export const adminUsers = {
   update:     (id, body) =>    request(`/api/admin/users/${id}`,        { method: 'PATCH', body: JSON.stringify(body) }),
   deactivate: (id) =>          request(`/api/admin/users/${id}/deactivate`, { method: 'PATCH' }),
   reactivate: (id) =>          request(`/api/admin/users/${id}/reactivate`, { method: 'PATCH' }),
-  officers:   () =>            request('/api/admin/officers'),
+  officers:        ()        => request('/api/admin/officers'),
+  officerStats:    (id)      => request(`/api/admin/officers/${id}/stats`),
+}
+
+// System config (supervisor + admin)
+export const adminConfig = {
+  getEscalation:    ()     => request('/api/admin/system-config/escalation'),
+  updateEscalation: (body) => request('/api/admin/system-config/escalation', { method: 'PATCH', body: JSON.stringify(body) }),
 }
 
 // Admin - barangays
@@ -187,6 +195,7 @@ async function publicRequest(path, { timeoutMs = 60000, ...options } = {}) {
     const msg = json.message ?? json.error ?? json.errors?.[0]?.msg ?? 'Request failed'
     const err = new Error(msg)
     err.status = res.status
+    err.data = json  // full response body for structured error handling (e.g. 409 duplicate)
     throw err
   }
 
@@ -229,8 +238,25 @@ export const citizen = {
   getReport:     (id, token) =>
     publicRequest(`/api/reports/${id}${token ? `?token=${encodeURIComponent(token)}` : ''}`),
 
+  // Attach extra evidence photos to an existing report (duplicate add-context flow).
+  // Requires the per-report access_token returned at submission.
+  attachPhotos: (reportId, token, additional_photos) =>
+    publicRequest(`/api/reports/${reportId}/additional-photos?token=${encodeURIComponent(token)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ additional_photos }),
+    }),
+
   // FCM token registration (anonymous) - best-effort, see CitizenLayout
   registerToken: (fcm_token) => jsonPost('/api/notifications/register-token', { fcm_token }),
+
+  // Contest a declined report (one-time appeal, requires per-report access token)
+  contestReport: (reportId, token, reason) =>
+    publicRequest(`/api/reports/${reportId}/contest?token=${encodeURIComponent(token)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ reason }),
+    }),
 }
 
 // localStorage helpers for the anonymous citizen identity.

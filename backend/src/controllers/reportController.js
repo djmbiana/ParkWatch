@@ -20,6 +20,7 @@ const logger = require('../config/logger');
 const ocrService = require('../services/ocrService');
 const notificationService = require('../services/notificationService');
 const storageService = require('../services/storageService');
+const { CONDUCTION_PLATE, NO_PLATE_ID, normalizePlate } = require('../utils/plateValidator');
 
 // VIOLATION_REPORTS.ocr_raw_response is TEXT (64KB); large Vision responses
 // (full bounding boxes) can exceed it, so cap before insert.
@@ -117,7 +118,7 @@ const findActiveRule = async (streetId, violationType) => {
  */
 const finishPipeline = async (res, ctx) => {
   const {
-    plate, citizenId, anonymousAlias, fcmToken, streetId, barangayId, violationType,
+    plate, plateType = 'regular', citizenId, anonymousAlias, fcmToken, streetId, barangayId, violationType,
     photoPath, additionalPhotos, ocrRawResponse, ocrExtractedPlate, ocrConfidenceScore, manualPlateInput,
   } = ctx;
 
@@ -125,21 +126,33 @@ const finishPipeline = async (res, ctx) => {
   // their report by id. crypto.randomBytes(32) → 64 hex chars (fits VARCHAR(64)).
   const accessToken = crypto.randomBytes(32).toString('hex');
 
-  // Step 5 — duplicate detection: same plate + street within the rolling
-  // window, ignoring rejected reports.
-  const [[duplicate]] = await pool.execute(
-    `SELECT r.report_id
-       FROM VIOLATION_REPORTS r
-       JOIN VEHICLES v ON v.vehicle_id = r.vehicle_id
-      WHERE v.plate_number = ?
-        AND r.street_id = ?
-        AND r.submitted_at > NOW() - INTERVAL ? MINUTE
-        AND r.status NOT IN ('rejected')
-      LIMIT 1`,
-    [plate, streetId, duplicateWindowMinutes()]
-  );
-  if (duplicate) {
-    return fail(res, 409, 'This vehicle was already reported at this location recently. It is already with the authorities — no need to report it again.');
+  // Step 5 — duplicate detection: same plate + street within the rolling window,
+  // ignoring rejected reports. NOPLATE_ identifiers are unique by design so they
+  // never match. For regular/conduction plates, return 409 with the existing
+  // report_id so the frontend can offer an "add context" prompt instead of a
+  // hard block.
+  if (plateType !== 'no_plate') {
+    const [[duplicate]] = await pool.execute(
+      `SELECT r.report_id, TIMESTAMPDIFF(MINUTE, r.submitted_at, NOW()) AS minutes_ago
+         FROM VIOLATION_REPORTS r
+         JOIN VEHICLES v ON v.vehicle_id = r.vehicle_id
+        WHERE v.plate_number = ?
+          AND r.street_id = ?
+          AND r.submitted_at > NOW() - INTERVAL ? MINUTE
+          AND r.status NOT IN ('rejected')
+        LIMIT 1`,
+      [plate, streetId, duplicateWindowMinutes()]
+    );
+    if (duplicate) {
+      return res.status(409).json({
+        success: false,
+        error: 'This vehicle was already reported at this location recently.',
+        message: 'This vehicle was already reported at this location recently.',
+        duplicate: true,
+        report_id: duplicate.report_id,
+        minutes_ago: Number(duplicate.minutes_ago),
+      });
+    }
   }
 
   // Step 6 — cross-barangay lookup: one VEHICLES row per plate, shared by all
@@ -206,10 +219,10 @@ const finishPipeline = async (res, ctx) => {
 
     const [inserted] = await connection.execute(
       `INSERT INTO VIOLATION_REPORTS
-         (citizen_id, anonymous_alias, access_token, fcm_token_id, vehicle_id, street_id, barangay_id, violation_type, photo_path, additional_photos,
+         (citizen_id, anonymous_alias, access_token, fcm_token_id, vehicle_id, street_id, barangay_id, violation_type, plate_type, photo_path, additional_photos,
           ocr_raw_response, ocr_extracted_plate, ocr_confidence_score,
           manual_plate_input, penalty_tier_id, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
         citizenId,
         anonymousAlias,
@@ -219,6 +232,7 @@ const finishPipeline = async (res, ctx) => {
         streetId,
         barangayId,
         violationType,
+        plateType,
         photoPath,
         additionalPhotos && additionalPhotos.length ? JSON.stringify(additionalPhotos) : null,
         ocrRawResponse ? String(ocrRawResponse).slice(0, MAX_RAW_RESPONSE_CHARS) : null,
@@ -269,28 +283,72 @@ const create = async (req, res, next) => {
 
   const { photo_url, violation_type } = req.body;
   const streetId = parseInt(req.body.street_id, 10);
-  // Anonymous submission (paper p.118): citizen_id is null unless a token was
-  // sent. The alias is stored on the report so it can be shown without a USERS row.
   const citizenId = req.user?.id ?? null;
   const anonymousAlias = resolveAnonymousAlias(req.body.anonymous_alias);
 
-  try {
-    // Step 1 — parking-rule validation
-    const rule = await findActiveRule(streetId, violation_type);
-    if (!rule) {
-      return fail(res, 422, 'This violation type is not active for this street.');
-    }
+  // plate_type distinguishes standard LTO plates from conduction stickers and
+  // vehicles with no plate. Defaults to 'regular' for backward compatibility.
+  const rawPlateType = String(req.body.plate_type ?? 'regular').toLowerCase();
+  const plateType = ['regular', 'conduction', 'no_plate'].includes(rawPlateType)
+    ? rawPlateType
+    : 'regular';
 
-    // photo_url must point at our bucket (throws 400 otherwise); the bare
-    // object path is what gets stored in VIOLATION_REPORTS.photo_path.
+  try {
+    const rule = await findActiveRule(streetId, violation_type);
+    if (!rule) return fail(res, 422, 'This violation type is not active for this street.');
+
     const { objectPath } = storageService.parsePhotoRef(photo_url);
-    // Optional extra evidence photos (validated against our bucket).
     const additionalPhotos = parseAdditionalPhotos(req.body.additional_photos);
 
-    // Primary flow: the client sends the citizen-confirmed plate. OCR already
-    // ran via POST /api/reports/ocr and the citizen reviewed (and possibly
-    // edited) it, so we trust the confirmed value and record whether it was
-    // edited away from the OCR reading (manual_plate_input) for the verifiers.
+    // --- Conduction sticker / temporary plate (CS-XXXXXXXX) -----------------
+    if (plateType === 'conduction') {
+      const rawPlate = normalizePlate(req.body.plate ?? '');
+      if (!CONDUCTION_PLATE.test(rawPlate)) {
+        return fail(res, 422, 'Conduction sticker format is invalid. Expected CS- followed by 4-12 alphanumeric characters.');
+      }
+      return await finishPipeline(res, {
+        plate: rawPlate,
+        plateType,
+        citizenId,
+        anonymousAlias,
+        fcmToken: req.body.fcm_token,
+        streetId,
+        barangayId: rule.barangay_id,
+        violationType: violation_type,
+        photoPath: objectPath,
+        additionalPhotos,
+        ocrRawResponse: null,
+        ocrExtractedPlate: null,
+        ocrConfidenceScore: null,
+        manualPlateInput: rawPlate,
+      });
+    }
+
+    // --- No plate (synthetic NOPLATE_ identifier) ----------------------------
+    if (plateType === 'no_plate') {
+      const rawPlate = normalizePlate(req.body.plate ?? '');
+      if (!NO_PLATE_ID.test(rawPlate)) {
+        return fail(res, 422, 'No-plate identifier format is invalid.');
+      }
+      return await finishPipeline(res, {
+        plate: rawPlate,
+        plateType,
+        citizenId,
+        anonymousAlias,
+        fcmToken: req.body.fcm_token,
+        streetId,
+        barangayId: rule.barangay_id,
+        violationType: violation_type,
+        photoPath: objectPath,
+        additionalPhotos,
+        ocrRawResponse: null,
+        ocrExtractedPlate: null,
+        ocrConfidenceScore: null,
+        manualPlateInput: null,
+      });
+    }
+
+    // --- Regular plate: citizen-confirmed plate (OCR already ran) -----------
     if (req.body.plate != null && String(req.body.plate).trim() !== '') {
       const { valid, normalized } = await ocrService.validatePlateFormat(req.body.plate);
       if (!valid) return fail(res, 422, 'Plate number format is invalid.');
@@ -304,6 +362,7 @@ const create = async (req, res, next) => {
 
       return await finishPipeline(res, {
         plate: normalized,
+        plateType,
         citizenId,
         anonymousAlias,
         fcmToken: req.body.fcm_token,
@@ -337,12 +396,11 @@ const create = async (req, res, next) => {
     }
 
     const { valid, normalized } = await ocrService.validatePlateFormat(ocr.extracted_plate);
-    if (!valid) {
-      return fail(res, 422, 'Plate number format is invalid.');
-    }
+    if (!valid) return fail(res, 422, 'Plate number format is invalid.');
 
     return await finishPipeline(res, {
       plate: normalized,
+      plateType,
       citizenId,
       anonymousAlias,
       fcmToken: req.body.fcm_token,
@@ -550,7 +608,7 @@ const getById = async (req, res, next) => {
   try {
     const [[report]] = await pool.execute(
       `SELECT r.report_id, r.citizen_id, r.vehicle_id, r.street_id, r.barangay_id,
-              r.violation_type, r.photo_path, r.additional_photos, r.ocr_extracted_plate, r.ocr_confidence_score,
+              r.violation_type, r.plate_type, r.photo_path, r.additional_photos, r.ocr_extracted_plate, r.ocr_confidence_score,
               r.manual_plate_input, r.status, r.resolution_outcome, r.rejection_reason,
               r.is_escalated, r.ticket_reference, r.access_token,
               r.submitted_at, r.verified_at, r.acknowledged_at, r.dispatched_at,
@@ -614,6 +672,12 @@ const getById = async (req, res, next) => {
       } catch { /* malformed JSON — no extra photos */ }
     }
 
+    // Appeal (if any) — mig031
+    const [[appeal]] = await pool.execute(
+      'SELECT appeal_id, status, reason, verdict_notes, created_at, resolved_at FROM REPORT_APPEALS WHERE report_id = ? ORDER BY created_at DESC LIMIT 1',
+      [reportId]
+    );
+
     // Cross-barangay violation history of the vehicle
     let history = [];
     if (report.vehicle_id) {
@@ -637,6 +701,7 @@ const getById = async (req, res, next) => {
         report_id: report.report_id,
         status: report.status,
         violation_type: report.violation_type,
+        plate_type: report.plate_type ?? 'regular',
         street: report.street_id
           ? { street_id: report.street_id, street_name: report.street_name, barangay_name: report.barangay_name }
           : null,
@@ -668,6 +733,7 @@ const getById = async (req, res, next) => {
         ticket_reference: report.ticket_reference,
         resolution_outcome: report.resolution_outcome,
         rejection_reason: report.rejection_reason,
+        appeal: appeal ?? null,
         submitted_at: report.submitted_at,
         verified_at: report.verified_at,
         acknowledged_at: report.acknowledged_at,
@@ -734,4 +800,123 @@ const checkDuplicate = async (req, res, next) => {
   }
 };
 
-module.exports = { create, confirm, mine, getById, ocrPreview, penaltyPreview, checkDuplicate };
+// ---------------------------------------------------------------------------
+// PATCH /api/reports/:reportId/additional-photos
+// FR: duplicate-report add-context flow. The original reporter's device has the
+// access_token for the report; they use it to attach extra evidence photos to
+// the existing report rather than creating a duplicate submission.
+// ---------------------------------------------------------------------------
+const attachAdditionalPhotos = async (req, res, next) => {
+  const reportId = parseInt(req.params.reportId, 10);
+  if (!Number.isInteger(reportId) || reportId <= 0) {
+    return fail(res, 400, 'Invalid report id.');
+  }
+
+  const accessToken = req.query.token ?? req.body.access_token;
+  if (!accessToken || typeof accessToken !== 'string') {
+    return fail(res, 401, 'Access token required.');
+  }
+
+  const newPhotos = parseAdditionalPhotos(req.body.additional_photos);
+  if (!newPhotos.length) return fail(res, 400, 'No valid photos provided.');
+
+  try {
+    const [[report]] = await pool.execute(
+      'SELECT report_id, additional_photos, access_token FROM VIOLATION_REPORTS WHERE report_id = ? LIMIT 1',
+      [reportId]
+    );
+    if (!report) return fail(res, 404, 'Report not found.');
+    if (!tokenMatches(accessToken, report.access_token)) {
+      return fail(res, 403, 'Invalid access token.');
+    }
+
+    let existing = [];
+    try { existing = JSON.parse(report.additional_photos ?? '[]'); } catch {}
+    if (!Array.isArray(existing)) existing = [];
+
+    const merged = [...existing, ...newPhotos].slice(0, 10);
+    await pool.execute(
+      'UPDATE VIOLATION_REPORTS SET additional_photos = ? WHERE report_id = ?',
+      [JSON.stringify(merged), reportId]
+    );
+
+    return res.json({
+      success: true,
+      message: 'Photos attached.',
+      data: { report_id: reportId, added: newPhotos.length },
+    });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// POST /api/reports/:reportId/contest?token=XXX  { reason }
+// Citizen contests a declined (rejected) report. One appeal per report.
+// Report status moves to 'contested'; barangay must then render a verdict.
+// ---------------------------------------------------------------------------
+const contest = async (req, res, next) => {
+  const reportId = parseInt(req.params.reportId, 10);
+  if (!Number.isInteger(reportId) || reportId <= 0) return fail(res, 400, 'Invalid report id.');
+
+  const accessToken = req.query.token ?? req.body.access_token;
+  const reason = (req.body.reason ?? '').trim();
+  if (!reason || reason.length < 10) return fail(res, 400, 'Reason must be at least 10 characters.');
+
+  try {
+    const [[report]] = await pool.execute(
+      'SELECT report_id, status, access_token FROM VIOLATION_REPORTS WHERE report_id = ? LIMIT 1',
+      [reportId]
+    );
+    if (!report) return fail(res, 404, 'Report not found.');
+    if (!tokenMatches(accessToken, report.access_token)) return fail(res, 401, 'Invalid access token.');
+    if (report.status !== 'rejected') return fail(res, 409, 'Only declined reports can be contested.');
+
+    const [[existing]] = await pool.execute(
+      'SELECT appeal_id FROM REPORT_APPEALS WHERE report_id = ? LIMIT 1',
+      [reportId]
+    );
+    if (existing) return fail(res, 409, 'An appeal has already been filed for this report.');
+
+    await pool.execute('INSERT INTO REPORT_APPEALS (report_id, reason) VALUES (?, ?)', [reportId, reason]);
+    await pool.execute("UPDATE VIOLATION_REPORTS SET status = 'contested' WHERE report_id = ?", [reportId]);
+
+    return res.status(201).json({ success: true, message: 'Appeal filed. The barangay will review your case.' });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+// ---------------------------------------------------------------------------
+// PATCH /api/reports/:reportId/appeal-verdict  { verdict, verdict_notes }
+// Barangay official renders a verdict on a contested report.
+// verdict='upheld' → stays rejected; verdict='overturned' → back to pending.
+// ---------------------------------------------------------------------------
+const renderAppealVerdict = async (req, res, next) => {
+  const reportId = parseInt(req.params.reportId, 10);
+  if (!Number.isInteger(reportId) || reportId <= 0) return fail(res, 400, 'Invalid report id.');
+
+  const { verdict, verdict_notes } = req.body;
+  if (!['upheld', 'overturned'].includes(verdict)) return fail(res, 400, 'verdict must be "upheld" or "overturned".');
+
+  try {
+    const [[appeal]] = await pool.execute(
+      "SELECT appeal_id FROM REPORT_APPEALS WHERE report_id = ? AND status = 'pending' LIMIT 1",
+      [reportId]
+    );
+    if (!appeal) return fail(res, 404, 'No pending appeal found for this report.');
+
+    const newStatus = verdict === 'overturned' ? 'pending' : 'rejected';
+    await pool.execute(
+      'UPDATE REPORT_APPEALS SET status = ?, verdict_notes = ?, resolved_at = NOW() WHERE appeal_id = ?',
+      [verdict, (verdict_notes ?? '').trim() || null, appeal.appeal_id]
+    );
+    await pool.execute('UPDATE VIOLATION_REPORTS SET status = ? WHERE report_id = ?', [newStatus, reportId]);
+
+    return res.json({ success: true, message: 'Verdict recorded.' });
+  } catch (err) {
+    return next(err);
+  }
+};
+
+module.exports = { create, confirm, mine, getById, ocrPreview, penaltyPreview, checkDuplicate, attachAdditionalPhotos, contest, renderAppealVerdict };

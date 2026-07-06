@@ -39,8 +39,9 @@ const submissionValidators = [
   body('fcm_token').optional({ nullable: true }).isString().trim().isLength({ max: 512 }),
   // Citizen-confirmed plate (+ the OCR reading it was confirmed against). When
   // present, the server trusts it instead of re-running OCR. Optional.
-  body('plate').optional({ nullable: true }).isString().trim().isLength({ max: 20 }),
-  body('ocr_extracted_plate').optional({ nullable: true }).isString().trim().isLength({ max: 20 }),
+  body('plate').optional({ nullable: true }).isString().trim().isLength({ max: 25 }),
+  body('ocr_extracted_plate').optional({ nullable: true }).isString().trim().isLength({ max: 25 }),
+  body('plate_type').optional({ nullable: true }).isString().trim().isIn(['regular', 'conduction', 'no_plate']),
   body('ocr_confidence_score').optional({ nullable: true }).isFloat({ min: 0, max: 100 }),
 ];
 
@@ -63,6 +64,13 @@ router.post('/ocr',             optionalAuthenticate, body('photo_url').isString
 router.post('/penalty-preview', optionalAuthenticate, body('plate').isString().trim().notEmpty(),     reportController.penaltyPreview);
 // Advisory pre-submission check: has this plate already been reported here recently?
 router.post('/check-duplicate', optionalAuthenticate, body('plate').isString().trim().notEmpty(), body('street_id').isInt({ min: 1 }), reportController.checkDuplicate);
+// Attach extra evidence photos to an existing report (duplicate add-context flow).
+// Auth: per-report access_token (query param ?token=... — same as GET /reports/:id).
+router.patch('/:reportId/additional-photos', optionalAuthenticate, body('additional_photos').isArray({ min: 1 }), reportController.attachAdditionalPhotos);
+// Citizen contests a declined report (one appeal per report, token-auth).
+router.post('/:reportId/contest', optionalAuthenticate, body('reason').isString().trim().notEmpty(), reportController.contest);
+// Barangay official renders verdict on a contested appeal.
+router.patch('/:reportId/appeal-verdict', authenticate, authorize(ROLES.BRGY_OFFICIAL), body('verdict').isIn(['upheld','overturned']), reportController.renderAppealVerdict);
 router.get ('/mine',    authenticate, authorize(ROLES.CITIZEN), reportController.mine);
 
 // --- Barangay queue -------------------------------------------------------

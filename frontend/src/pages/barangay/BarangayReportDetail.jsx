@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useOutletContext } from 'react-router-dom'
-import { ArrowLeft, ChevronLeft } from 'lucide-react'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { reports } from '../../services/api'
 import { useToast } from '../../components/ToastContext'
 import StatusBadge from '../../components/StatusBadge'
@@ -16,14 +16,14 @@ function KV({ label, children }) {
       <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
         {label}
       </span>
-      <span style={{ fontSize: 13, color: 'var(--color-text-primary)' }}>{children}</span>
+      <span style={{ fontSize: 13, fontWeight: 500, color: '#0F1117' }}>{children}</span>
     </div>
   )
 }
 
 function SectionHeader({ children }) {
   return (
-    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12, marginTop: 20 }}>
+    <div style={{ fontSize: 11, fontWeight: 700, color: '#0F1117', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 12, marginTop: 20 }}>
       {children}
     </div>
   )
@@ -37,12 +37,16 @@ export default function BarangayReportDetail() {
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [lightbox, setLightbox] = useState(false)
+  const [slideshowIdx, setSlideshowIdx] = useState(null)
   const [showConfirm, setShowConfirm] = useState(false)
   const [confirmLoading, setConfirmLoading] = useState(false)
-  const [showReject, setShowReject] = useState(false)
-  const [rejectReason, setRejectReason] = useState('')
-  const [rejectErr, setRejectErr] = useState('')
-  const [rejectLoading, setRejectLoading] = useState(false)
+  const [showDecline, setShowDecline] = useState(false)
+  const [declineReason, setDeclineReason] = useState('')
+  const [declineErr, setDeclineErr] = useState('')
+  const [declineLoading, setDeclineLoading] = useState(false)
+  const [verdict, setVerdict] = useState('upheld')
+  const [verdictNotes, setVerdictNotes] = useState('')
+  const [verdictLoading, setVerdictLoading] = useState(false)
 
   useEffect(() => { setPageTitle(`Report RPT-${reportId}`) }, [reportId, setPageTitle])
 
@@ -67,21 +71,39 @@ export default function BarangayReportDetail() {
     }
   }
 
-  const handleReject = async () => {
-    if (!rejectReason.trim() || rejectReason.trim().length < 10) {
-      setRejectErr('Reason must be at least 10 characters.')
+  const handleDecline = async () => {
+    if (!declineReason.trim() || declineReason.trim().length < 10) {
+      setDeclineErr('Please provide a reason of at least 10 characters.')
       return
     }
-    setRejectErr('')
-    setRejectLoading(true)
+    setDeclineErr('')
+    setDeclineLoading(true)
     try {
-      await reports.verify(reportId, { action: 'reject', rejection_reason: rejectReason.trim() })
-      toast('Report rejected.', 'success')
+      await reports.verify(reportId, { action: 'reject', rejection_reason: declineReason.trim() })
+      toast('Report declined.', 'success')
       navigate('/barangay/queue')
     } catch (e) {
-      toast(e.message || 'Failed to reject report.', 'error')
+      toast(e.message || 'Failed to decline report.', 'error')
     } finally {
-      setRejectLoading(false)
+      setDeclineLoading(false)
+    }
+  }
+
+  const handleVerdict = async () => {
+    setVerdictLoading(true)
+    try {
+      await reports.renderAppealVerdict(reportId, verdict, verdictNotes)
+      toast(
+        verdict === 'overturned'
+          ? 'Decision overturned. Report returned to the pending queue.'
+          : 'Decision upheld. Citizen has been notified.',
+        'success'
+      )
+      navigate('/barangay/queue')
+    } catch (e) {
+      toast(e.message || 'Failed to record verdict.', 'error')
+    } finally {
+      setVerdictLoading(false)
     }
   }
 
@@ -97,10 +119,11 @@ export default function BarangayReportDetail() {
     return <div style={{ textAlign: 'center', color: 'var(--color-text-muted)', paddingTop: 60 }}>Report not found.</div>
   }
 
-  const plate = report.vehicle?.plate_number ?? report.ocr_extracted_plate
   const isPending = report.status === 'pending'
+  const isContested = report.status === 'contested'
   const history = report.vehicle?.history ?? []
   const otherHistory = history.filter(h => h.report_id !== report.report_id)
+  const additionalPhotos = Array.isArray(report.additional_photos) ? report.additional_photos : []
 
   return (
     <div>
@@ -113,7 +136,7 @@ export default function BarangayReportDetail() {
           <ChevronLeft size={16} /> Back
         </button>
         <span style={{ color: 'var(--color-border-strong)' }}>|</span>
-        <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--color-text-primary)' }}>
+        <span style={{ fontSize: 16, fontWeight: 700, color: '#0F1117' }}>
           Report RPT-{report.report_id}
         </span>
         <StatusBadge status={report.status} />
@@ -151,13 +174,59 @@ export default function BarangayReportDetail() {
               }
             </div>
 
-            {report.additional_photos?.length > 0 && (
+            {/* Additional photos with inline slideshow */}
+            {additionalPhotos.length > 0 && (
               <>
-                <SectionHeader>Additional Photos ({report.additional_photos.length})</SectionHeader>
+                <SectionHeader>Additional Photos ({additionalPhotos.length})</SectionHeader>
+
+                {slideshowIdx !== null && (
+                  <div style={{ marginBottom: 10, borderRadius: 'var(--radius-md)', overflow: 'hidden', position: 'relative', background: '#0F1117' }}>
+                    <img
+                      src={additionalPhotos[slideshowIdx]}
+                      alt={`Evidence ${slideshowIdx + 1}`}
+                      style={{ width: '100%', maxHeight: 320, objectFit: 'contain', display: 'block' }}
+                    />
+                    {additionalPhotos.length > 1 && (
+                      <>
+                        <button
+                          onClick={() => setSlideshowIdx((slideshowIdx - 1 + additionalPhotos.length) % additionalPhotos.length)}
+                          style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', padding: '6px 8px', display: 'flex' }}
+                        >
+                          <ChevronLeft size={18} />
+                        </button>
+                        <button
+                          onClick={() => setSlideshowIdx((slideshowIdx + 1) % additionalPhotos.length)}
+                          style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: 4, color: '#fff', cursor: 'pointer', padding: '6px 8px', display: 'flex' }}
+                        >
+                          <ChevronRight size={18} />
+                        </button>
+                      </>
+                    )}
+                    <button
+                      onClick={() => setSlideshowIdx(null)}
+                      style={{ position: 'absolute', top: 8, right: 8, background: 'rgba(0,0,0,0.5)', border: 'none', borderRadius: 4, color: '#fff', fontSize: 12, cursor: 'pointer', padding: '4px 8px' }}
+                    >
+                      Close
+                    </button>
+                    <div style={{ position: 'absolute', bottom: 8, right: 12, background: 'rgba(0,0,0,0.5)', color: '#fff', fontSize: 11, padding: '3px 8px', borderRadius: 4 }}>
+                      {slideshowIdx + 1} / {additionalPhotos.length}
+                    </div>
+                  </div>
+                )}
+
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 6 }}>
-                  {report.additional_photos.map((url, i) => (
-                    <img key={i} src={url} alt={`Additional evidence ${i + 1}`} onClick={() => setLightbox(url)}
-                      style={{ width: 80, height: 80, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--color-border)', cursor: 'pointer' }} />
+                  {additionalPhotos.map((url, i) => (
+                    <img
+                      key={i}
+                      src={url}
+                      alt={`Additional evidence ${i + 1}`}
+                      onClick={() => setSlideshowIdx(slideshowIdx === i ? null : i)}
+                      style={{
+                        width: 80, height: 80, objectFit: 'cover', borderRadius: 8,
+                        border: slideshowIdx === i ? '2px solid var(--accent)' : '1px solid var(--color-border)',
+                        cursor: 'pointer',
+                      }}
+                    />
                   ))}
                 </div>
               </>
@@ -209,13 +278,90 @@ export default function BarangayReportDetail() {
               <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <PenaltyTierBadge tier_name={report.penalty_tier?.tier_name} />
                 {report.penalty_tier?.fine_amount != null && (
-                  <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>
-                    - PHP {Number(report.penalty_tier.fine_amount).toLocaleString()}
+                  <span style={{ fontSize: 12, fontWeight: 600, color: '#0F1117' }}>
+                    PHP {Number(report.penalty_tier.fine_amount).toLocaleString()}
                   </span>
                 )}
               </span>
             </KV>
+            {report.rejection_reason && (
+              <KV label="Reason Declined">{report.rejection_reason}</KV>
+            )}
           </div>
+
+          {/* Appeal verdict panel — contested reports only */}
+          {isContested && report.appeal && (
+            <div style={{
+              background: '#F5F3FF',
+              border: '1px solid #DDD6FE',
+              borderRadius: 'var(--radius-md)',
+              boxShadow: 'var(--shadow-sm)',
+              padding: 20,
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#6D28D9', marginBottom: 12, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Appeal Filed
+              </div>
+              <p style={{ fontSize: 13, color: '#0F1117', marginBottom: 16, lineHeight: 1.5 }}>
+                <span style={{ fontWeight: 600 }}>Citizen's reason:</span> {report.appeal.reason}
+              </p>
+              <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
+                <button
+                  onClick={() => setVerdict('overturned')}
+                  style={{
+                    flex: 1, padding: '8px 0', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                    background: verdict === 'overturned' ? '#10B981' : 'transparent',
+                    color: verdict === 'overturned' ? '#fff' : '#10B981',
+                    border: '1.5px solid #10B981',
+                  }}
+                >
+                  Overturn
+                </button>
+                <button
+                  onClick={() => setVerdict('upheld')}
+                  style={{
+                    flex: 1, padding: '8px 0', borderRadius: 6, fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                    background: verdict === 'upheld' ? '#EF4444' : 'transparent',
+                    color: verdict === 'upheld' ? '#fff' : '#EF4444',
+                    border: '1.5px solid #EF4444',
+                  }}
+                >
+                  Uphold Decline
+                </button>
+              </div>
+              <textarea
+                value={verdictNotes}
+                onChange={e => setVerdictNotes(e.target.value)}
+                rows={3}
+                placeholder="Notes for the citizen (optional)..."
+                style={{
+                  width: '100%', borderRadius: 6, border: '1px solid #DDD6FE',
+                  padding: '8px 12px', fontSize: 13, color: '#0F1117',
+                  background: '#fff', resize: 'vertical', fontFamily: 'Inter, sans-serif',
+                  marginBottom: 10,
+                }}
+              />
+              {verdict === 'upheld' && (
+                <div style={{ fontSize: 12, color: '#6B7280', background: '#FEF3C7', border: '1px solid #FDE68A', borderRadius: 6, padding: '8px 12px', marginBottom: 10 }}>
+                  The citizen will be advised they may file a Certificate to File Action (CFA) with {report.street?.barangay_name ?? 'the barangay'}.
+                </div>
+              )}
+              <button
+                onClick={handleVerdict}
+                disabled={verdictLoading}
+                style={{
+                  padding: '8px 20px', borderRadius: 6,
+                  background: 'var(--accent)', color: '#fff',
+                  border: 'none', fontSize: 13, fontWeight: 600,
+                  cursor: verdictLoading ? 'not-allowed' : 'pointer',
+                  opacity: verdictLoading ? 0.7 : 1,
+                  display: 'flex', alignItems: 'center', gap: 8,
+                }}
+              >
+                {verdictLoading && <LoadingSpinner size={13} color="#fff" />}
+                Record Verdict
+              </button>
+            </div>
+          )}
 
           {/* Cross-Barangay History */}
           <div style={{
@@ -239,17 +385,17 @@ export default function BarangayReportDetail() {
                 <thead>
                   <tr style={{ borderBottom: '2px solid var(--color-border-strong)' }}>
                     {['Barangay', 'Street', 'Date', 'Tier', 'Status'].map(h => (
-                      <th key={h} style={{ padding: '6px 8px', textAlign: 'left', fontSize: 10, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>
+                      <th key={h} style={{ padding: '6px 8px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: '#0F1117', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody>
                   {otherHistory.map(h => (
                     <tr key={h.report_id} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                      <td style={{ padding: '6px 8px' }}>{h.barangay_name ?? '-'}</td>
-                      <td style={{ padding: '6px 8px' }}>{h.street_name ?? '-'}</td>
-                      <td style={{ padding: '6px 8px' }}>{h.submitted_at ? new Date(h.submitted_at).toLocaleDateString('en-PH') : '-'}</td>
-                      <td style={{ padding: '6px 8px' }}>{h.penalty_tier?.tier_name ?? '-'}</td>
+                      <td style={{ padding: '6px 8px', color: '#0F1117', fontWeight: 500 }}>{h.barangay_name ?? '-'}</td>
+                      <td style={{ padding: '6px 8px', color: '#0F1117' }}>{h.street_name ?? '-'}</td>
+                      <td style={{ padding: '6px 8px', color: '#0F1117' }}>{h.submitted_at ? new Date(h.submitted_at).toLocaleDateString('en-PH') : '-'}</td>
+                      <td style={{ padding: '6px 8px', color: '#0F1117' }}>{h.penalty_tier?.tier_name ?? '-'}</td>
                       <td style={{ padding: '6px 8px' }}><StatusBadge status={h.status} /></td>
                     </tr>
                   ))}
@@ -258,7 +404,7 @@ export default function BarangayReportDetail() {
             )}
           </div>
 
-          {/* Actions */}
+          {/* Actions — pending reports only */}
           {isPending && (
             <div style={{
               background: 'var(--color-surface)',
@@ -280,55 +426,57 @@ export default function BarangayReportDetail() {
                   Approve Report
                 </button>
                 <button
-                  onClick={() => { setShowReject(v => !v); setRejectErr('') }}
+                  onClick={() => { setShowDecline(v => !v); setDeclineErr('') }}
                   style={{
                     flex: 1, height: 36, borderRadius: 6,
                     background: 'transparent', color: '#EF4444',
                     border: '1.5px solid #EF4444', fontSize: 14, fontWeight: 600, cursor: 'pointer',
                   }}
                 >
-                  Reject Report
+                  Decline Report
                 </button>
               </div>
 
-              {showReject && (
+              {showDecline && (
                 <div style={{ marginTop: 16 }}>
-                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--color-text-secondary)', display: 'block', marginBottom: 6 }}>
-                    Reason for Rejection *
+                  <label style={{ fontSize: 12, fontWeight: 600, color: '#0F1117', display: 'block', marginBottom: 6 }}>
+                    Reason for declining *
                   </label>
                   <textarea
-                    value={rejectReason}
-                    onChange={e => setRejectReason(e.target.value)}
+                    value={declineReason}
+                    onChange={e => setDeclineReason(e.target.value)}
                     rows={3}
-                    placeholder="Describe why this report is being rejected…"
+                    placeholder="Let the citizen know why this report could not be processed..."
                     style={{
                       width: '100%', borderRadius: 6,
-                      border: rejectErr ? '1.5px solid #EF4444' : '1px solid var(--color-border)',
+                      border: declineErr ? '1.5px solid #EF4444' : '1px solid var(--color-border)',
                       padding: '8px 12px', fontSize: 13,
-                      color: 'var(--color-text-primary)',
-                      background: 'var(--color-bg)',
+                      color: '#0F1117', background: 'var(--color-bg)',
                       resize: 'vertical', fontFamily: 'Inter, sans-serif',
                     }}
                   />
-                  {rejectErr && <div style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{rejectErr}</div>}
+                  {declineErr && <div style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{declineErr}</div>}
+                  <p style={{ fontSize: 12, color: '#6B7280', margin: '8px 0 0' }}>
+                    The citizen may contest this decision once.
+                  </p>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginTop: 10 }}>
                     <button
-                      onClick={handleReject}
-                      disabled={rejectLoading}
+                      onClick={handleDecline}
+                      disabled={declineLoading}
                       style={{
                         padding: '7px 20px', borderRadius: 6,
                         background: '#EF4444', color: '#fff',
                         border: 'none', fontSize: 13, fontWeight: 600,
-                        cursor: rejectLoading ? 'not-allowed' : 'pointer',
-                        opacity: rejectLoading ? 0.7 : 1,
+                        cursor: declineLoading ? 'not-allowed' : 'pointer',
+                        opacity: declineLoading ? 0.7 : 1,
                         display: 'flex', alignItems: 'center', gap: 8,
                       }}
                     >
-                      {rejectLoading && <LoadingSpinner size={13} color="#fff" />}
-                      Confirm Rejection
+                      {declineLoading && <LoadingSpinner size={13} color="#fff" />}
+                      Confirm Decision
                     </button>
                     <button
-                      onClick={() => { setShowReject(false); setRejectReason(''); setRejectErr('') }}
+                      onClick={() => { setShowDecline(false); setDeclineReason(''); setDeclineErr('') }}
                       style={{ fontSize: 13, color: 'var(--color-text-muted)', background: 'none', border: 'none', cursor: 'pointer' }}
                     >
                       Cancel
@@ -341,7 +489,7 @@ export default function BarangayReportDetail() {
         </div>
       </div>
 
-      {/* Lightbox */}
+      {/* Main photo lightbox */}
       {lightbox && (
         <div
           onClick={() => setLightbox(false)}
@@ -352,7 +500,7 @@ export default function BarangayReportDetail() {
           }}
         >
           <img
-            src={typeof lightbox === 'string' ? lightbox : report.photo_url}
+            src={report.photo_url}
             alt="Evidence full"
             style={{ maxWidth: '90vw', maxHeight: '90vh', borderRadius: 8, objectFit: 'contain' }}
             onClick={e => e.stopPropagation()}

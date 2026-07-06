@@ -17,7 +17,7 @@ const { sendSuccess, sendError } = require('../utils/response');
 const list = async (req, res, next) => {
   try {
     const [rows] = await pool.execute(
-      `SELECT s.street_id, s.street_name, b.barangay_name
+      `SELECT s.street_id, s.street_name, b.barangay_id, b.barangay_name
          FROM STREETS s
          JOIN BARANGAYS b ON b.barangay_id = s.barangay_id
         WHERE b.is_participating = TRUE AND s.is_active = TRUE

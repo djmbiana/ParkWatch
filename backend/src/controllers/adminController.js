@@ -107,10 +107,99 @@ const reactivateUser = async (req, res, next) => {
 const listOfficers = async (req, res, next) => {
   try {
     const [rows] = await pool.execute(
-      `SELECT user_id, first_name, last_name, email, is_active, anonymous_alias AS badge_number
-         FROM USERS WHERE role IN ('mtpb_officer') AND is_active = TRUE ORDER BY first_name`
+      `SELECT u.user_id, u.first_name, u.last_name, u.email, u.is_active,
+              u.anonymous_alias AS badge_number, u.supervisor_id,
+              CONCAT(s.first_name, ' ', s.last_name) AS supervisor_name,
+              (SELECT COUNT(*) FROM VIOLATION_REPORTS vr
+                WHERE vr.assigned_officer_id = u.user_id
+                  AND vr.status IN ('acknowledged','dispatched')) AS active_reports,
+              (SELECT COUNT(*) FROM VIOLATION_REPORTS vr2
+                WHERE vr2.assigned_officer_id = u.user_id
+                  AND vr2.status = 'resolved') AS resolved_total
+         FROM USERS u
+         LEFT JOIN USERS s ON s.user_id = u.supervisor_id
+        WHERE u.role = 'mtpb_officer'
+        ORDER BY u.first_name`
     );
     return res.json({ success: true, message: 'Success', data: rows });
+  } catch (err) { return next(err); }
+};
+
+const getOfficerStats = async (req, res, next) => {
+  const officerId = parseInt(req.params.officerId, 10);
+  try {
+    const [[officer]] = await pool.execute(
+      `SELECT u.user_id, u.first_name, u.last_name, u.email, u.is_active,
+              u.anonymous_alias AS badge_number, u.supervisor_id,
+              CONCAT(s.first_name, ' ', s.last_name) AS supervisor_name
+         FROM USERS u
+         LEFT JOIN USERS s ON s.user_id = u.supervisor_id
+        WHERE u.user_id = ? AND u.role = 'mtpb_officer'`,
+      [officerId]
+    );
+    if (!officer) return res.status(404).json({ success: false, message: 'Officer not found.' });
+
+    const [[stats]] = await pool.execute(
+      `SELECT
+         SUM(vr.status IN ('acknowledged','dispatched'))       AS active_reports,
+         SUM(vr.status = 'resolved')                          AS resolved_total,
+         SUM(vr.status = 'resolved' AND DATE(vr.resolved_at) = CURDATE()) AS resolved_today,
+         ROUND(AVG(CASE WHEN vr.status = 'resolved'
+           THEN TIMESTAMPDIFF(MINUTE, vr.acknowledged_at, vr.resolved_at) END), 1) AS avg_resolve_min
+       FROM VIOLATION_REPORTS vr
+      WHERE vr.assigned_officer_id = ?`,
+      [officerId]
+    );
+
+    const [recent] = await pool.execute(
+      `SELECT vr.report_id, vr.status, vr.violation_type, vr.submitted_at, vr.resolved_at,
+              s.street_name, b.barangay_name
+         FROM VIOLATION_REPORTS vr
+         LEFT JOIN STREETS s ON s.street_id = vr.street_id
+         LEFT JOIN BARANGAYS b ON b.barangay_id = COALESCE(vr.barangay_id, s.barangay_id)
+        WHERE vr.assigned_officer_id = ?
+        ORDER BY vr.submitted_at DESC
+        LIMIT 10`,
+      [officerId]
+    );
+
+    return res.json({ success: true, message: 'Success', data: { ...officer, stats, recent } });
+  } catch (err) { return next(err); }
+};
+
+const getEscalationConfig = async (req, res, next) => {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT config_key, config_value, label, updated_at, updated_by FROM SYSTEM_CONFIG
+        WHERE config_key IN ('escalation_response_window_minutes', 'escalation_renotify_window_minutes')`
+    );
+    return res.json({ success: true, message: 'Success', data: rows });
+  } catch (err) { return next(err); }
+};
+
+const updateEscalationConfig = async (req, res, next) => {
+  const { response_window_minutes, renotify_window_minutes } = req.body;
+  const userId = req.user?.user_id;
+  try {
+    if (response_window_minutes != null) {
+      const val = parseInt(response_window_minutes, 10);
+      if (isNaN(val) || val < 1 || val > 1440) return res.status(400).json({ success: false, message: 'response_window_minutes must be 1-1440.' });
+      await pool.execute(
+        `INSERT INTO SYSTEM_CONFIG (config_key, config_value, updated_by) VALUES ('escalation_response_window_minutes', ?, ?)
+           ON DUPLICATE KEY UPDATE config_value = VALUES(config_value), updated_by = VALUES(updated_by)`,
+        [String(val), userId]
+      );
+    }
+    if (renotify_window_minutes != null) {
+      const val = parseInt(renotify_window_minutes, 10);
+      if (isNaN(val) || val < 1 || val > 120) return res.status(400).json({ success: false, message: 'renotify_window_minutes must be 1-120.' });
+      await pool.execute(
+        `INSERT INTO SYSTEM_CONFIG (config_key, config_value, updated_by) VALUES ('escalation_renotify_window_minutes', ?, ?)
+           ON DUPLICATE KEY UPDATE config_value = VALUES(config_value), updated_by = VALUES(updated_by)`,
+        [String(val), userId]
+      );
+    }
+    return res.json({ success: true, message: 'Escalation config updated.' });
   } catch (err) { return next(err); }
 };
 
@@ -399,7 +488,8 @@ const createTier = async (req, res, next) => {
 };
 
 module.exports = {
-  listUsers, createUser, updateUser, deactivateUser, reactivateUser, listOfficers,
+  listUsers, createUser, updateUser, deactivateUser, reactivateUser,
+  listOfficers, getOfficerStats, getEscalationConfig, updateEscalationConfig,
   listBarangays, createBarangay, toggleBarangay, setBarangayLocation,
   listStreets, createStreet, deactivateStreet, listRules, toggleRule, createRule,
   listTiers, updateTier, createTier,

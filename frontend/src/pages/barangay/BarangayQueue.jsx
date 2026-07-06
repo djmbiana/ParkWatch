@@ -112,7 +112,7 @@ export default function BarangayQueue() {
       <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
         <StatCard value={stats.pending ?? 0}          label="Pending Today" />
         <StatCard value={stats.verified ?? 0}         label="Verified Today" color="var(--color-verified)" />
-        <StatCard value={stats.rejected ?? 0}         label="Rejected Today" color="var(--color-rejected)" />
+        <StatCard value={stats.rejected ?? 0}         label="Declined Today" color="var(--color-rejected)" />
         <StatCard value={`${stats.avg_review_min ?? 0} min`} label="Avg. Review Time" />
       </div>
 
@@ -128,7 +128,7 @@ export default function BarangayQueue() {
           padding: '14px 20px',
           borderBottom: '1px solid var(--color-border)',
         }}>
-          <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: '#0F1117', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             Queue
           </span>
           <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>

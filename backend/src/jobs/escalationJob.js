@@ -24,11 +24,28 @@ const logger = require('../config/logger');
 const notificationService = require('../services/notificationService');
 const { getMessaging } = require('../config/firebase');
 
-// Spec env names, falling back to the Sprint-1 name then sensible defaults.
-const RESPONSE_WINDOW = parseInt(
+// Env fallbacks kept for tests / first boot before migration 032 runs.
+const ENV_RESPONSE_WINDOW = parseInt(
   process.env.MTPB_RESPONSE_WINDOW_MINUTES || process.env.MTPB_RESPONSE_TIMER_MINUTES || '60', 10
 );
-const RENOTIFY_WINDOW = parseInt(process.env.MTPB_RENOTIFY_WINDOW_MINUTES || '15', 10);
+const ENV_RENOTIFY_WINDOW = parseInt(process.env.MTPB_RENOTIFY_WINDOW_MINUTES || '15', 10);
+
+// Read configurable windows from DB; fall back to env if the table doesn't exist yet.
+const getWindows = async () => {
+  try {
+    const [rows] = await pool.execute(
+      `SELECT config_key, config_value FROM SYSTEM_CONFIG
+        WHERE config_key IN ('escalation_response_window_minutes', 'escalation_renotify_window_minutes')`
+    );
+    const map = Object.fromEntries(rows.map(r => [r.config_key, parseInt(r.config_value, 10)]));
+    return {
+      responseWindow: map['escalation_response_window_minutes'] ?? ENV_RESPONSE_WINDOW,
+      renotifyWindow: map['escalation_renotify_window_minutes'] ?? ENV_RENOTIFY_WINDOW,
+    };
+  } catch {
+    return { responseWindow: ENV_RESPONSE_WINDOW, renotifyWindow: ENV_RENOTIFY_WINDOW };
+  }
+};
 
 const ESCALATION_REASON = 'Unacknowledged after re-notification to MTPB officers.';
 
@@ -62,7 +79,7 @@ const notifyStaff = async (userId, reportId, message) => {
 // Stage 1 — re-notify MTPB officers about reports past the response window.
 // Source of truth is MTPB_QUEUE (response_deadline / renotified flags); the
 // VIOLATION_REPORTS columns are mirrored for backward compatibility.
-const runStage1Renotification = async () => {
+const runStage1Renotification = async (renotifyWindow) => {
   const [reports] = await pool.execute(
     `SELECT vr.report_id
        FROM VIOLATION_REPORTS vr
@@ -94,7 +111,7 @@ const runStage1Renotification = async () => {
     );
 
     const message = `Unacknowledged report RPT-${r.report_id} requires immediate attention. `
-      + `Please acknowledge within ${RENOTIFY_WINDOW} minutes.`;
+      + `Please acknowledge within ${renotifyWindow} minutes.`;
     for (const o of officers) await notifyStaff(o.user_id, r.report_id, message);
     processed++;
   }
@@ -105,7 +122,7 @@ const runStage1Renotification = async () => {
 };
 
 // Stage 2 — escalate reports still unacknowledged after the re-notify window.
-const runStage2Escalation = async () => {
+const runStage2Escalation = async (renotifyWindow) => {
   const [reports] = await pool.execute(
     `SELECT vr.report_id
        FROM VIOLATION_REPORTS vr
@@ -115,7 +132,7 @@ const runStage2Escalation = async () => {
         AND mq.is_escalated = FALSE
         AND mq.renotified_at IS NOT NULL
         AND DATE_ADD(mq.renotified_at, INTERVAL ? MINUTE) < NOW()`,
-    [RENOTIFY_WINDOW]
+    [renotifyWindow]
   );
   if (reports.length === 0) return 0;
 
@@ -155,8 +172,9 @@ const runStage2Escalation = async () => {
 
 // Run both stages once. Exported for manual triggering in tests/admin tooling.
 const runNow = async () => {
-  await runStage1Renotification();
-  await runStage2Escalation();
+  const { renotifyWindow } = await getWindows();
+  await runStage1Renotification(renotifyWindow);
+  await runStage2Escalation(renotifyWindow);
 };
 
 let task = null;
@@ -173,7 +191,7 @@ const start = () => {
       logger.error(`[Escalation] Job error: ${err.message}`);
     }
   });
-  logger.info(`[Escalation] Scheduled every 5 min (response window ${RESPONSE_WINDOW}m, renotify window ${RENOTIFY_WINDOW}m).`);
+  logger.info(`[Escalation] Scheduled every 5 min (windows loaded from DB at runtime).`);
   return task;
 };
 

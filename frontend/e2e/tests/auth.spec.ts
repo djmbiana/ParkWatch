@@ -8,6 +8,10 @@ import { getToken } from '../helpers/auth';
  * NOTE: auth is mounted ONLY at /api/v1/auth (no unversioned alias). Portals are
  * guarded client-side by RoleRoute (token + role in localStorage) and
  * server-side by authorize() middleware.
+ *
+ * New cases cover:
+ *   - Escalation config endpoint auth (migration 032)
+ *   - Officer stats endpoint auth (new listOfficers / getOfficerStats)
  */
 const login = (ctx: any, email: string, password: string) =>
   ctx.post(`${API_URL}${LOGIN_PATH}`, { data: { email, password } });
@@ -69,9 +73,9 @@ test.describe('Authentication & Authorization', () => {
     const res = await ctx.get(`${API_URL}/api/reports/queue/supervisor`, {
       headers: {
         Authorization: `Bearer ${await getToken('officer')}`,
-        'X-Role-Override': 'mtpb_supervisor', // must be ignored
+        'X-Role-Override': 'mtpb_supervisor',
       },
-      data: { role: 'mtpb_supervisor' }, // must be ignored
+      data: { role: 'mtpb_supervisor' },
     });
     expect(res.status()).toBe(403);
     await ctx.dispose();
@@ -94,12 +98,84 @@ test.describe('Authentication & Authorization', () => {
   });
 
   test('TC-AUTH-10: A wrong-role session is redirected to /login', async ({ page }) => {
-    await page.goto('/login'); // need a real origin before touching localStorage
+    await page.goto('/login');
     await page.evaluate((keys) => {
       localStorage.setItem(keys.token, 'fake-citizen-token');
       localStorage.setItem(keys.user, JSON.stringify({ role: 'citizen' }));
     }, STORAGE);
     await page.goto('/barangay');
     await expect(page).toHaveURL(/login/);
+  });
+
+  // --- New auth cases (migration 032 + officer stats) ---
+
+  test('TC-AUTH-11: Escalation config GET requires authentication (401)', async () => {
+    const ctx = await request.newContext();
+    const res = await ctx.get(`${API_URL}/api/admin/system-config/escalation`);
+    expect(res.status()).toBe(401);
+    await ctx.dispose();
+  });
+
+  test('TC-AUTH-12: Escalation config PATCH is forbidden for MTPB officer (403)', async () => {
+    const ctx = await request.newContext();
+    const res = await ctx.patch(`${API_URL}/api/admin/system-config/escalation`, {
+      headers: { Authorization: `Bearer ${await getToken('officer')}` },
+      data: { response_window_minutes: 30 },
+    });
+    expect(res.status()).toBe(403);
+    await ctx.dispose();
+  });
+
+  test('TC-AUTH-13: Escalation config PATCH is forbidden for barangay official (403)', async () => {
+    const ctx = await request.newContext();
+    const res = await ctx.patch(`${API_URL}/api/admin/system-config/escalation`, {
+      headers: { Authorization: `Bearer ${await getToken('barangay')}` },
+      data: { response_window_minutes: 30 },
+    });
+    expect(res.status()).toBe(403);
+    await ctx.dispose();
+  });
+
+  test('TC-AUTH-14: Officer stats endpoint requires supervisor or admin (403 for officer)', async () => {
+    const ctx = await request.newContext();
+    // Officers cannot look up their own stats via the supervisor-only endpoint.
+    const res = await ctx.get(`${API_URL}/api/admin/officers/3/stats`, {
+      headers: { Authorization: `Bearer ${await getToken('officer')}` },
+    });
+    expect(res.status()).toBe(403);
+    await ctx.dispose();
+  });
+
+  test('TC-AUTH-15: Supervisor can access officer stats endpoint (200)', async () => {
+    const ctx = await request.newContext();
+    // First get a real officer user_id.
+    const officersRes = await ctx.get(`${API_URL}/api/admin/officers`, {
+      headers: { Authorization: `Bearer ${await getToken('supervisor')}` },
+    });
+    const officers = (await officersRes.json()) ?? [];
+    const list = Array.isArray(officers) ? officers : [];
+    if (list.length === 0) {
+      await ctx.dispose();
+      test.skip(true, 'No officers seeded.');
+      return;
+    }
+    const res = await ctx.get(`${API_URL}/api/admin/officers/${list[0].user_id}/stats`, {
+      headers: { Authorization: `Bearer ${await getToken('supervisor')}` },
+    });
+    expect(res.status()).toBe(200);
+    const body = await res.json();
+    expect(body.data).toHaveProperty('stats');
+    expect(body.data).toHaveProperty('recent');
+    await ctx.dispose();
+  });
+
+  test('TC-AUTH-16: Appeal verdict PATCH requires brgy_official role (403 for supervisor)', async () => {
+    const ctx = await request.newContext();
+    const res = await ctx.patch(`${API_URL}/api/reports/1/appeal-verdict`, {
+      headers: { Authorization: `Bearer ${await getToken('supervisor')}` },
+      data: { verdict: 'upheld' },
+    });
+    expect(res.status()).toBe(403);
+    await ctx.dispose();
   });
 });
