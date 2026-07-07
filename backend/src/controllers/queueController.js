@@ -28,13 +28,15 @@ const REPORT_SELECT = `
     b.barangay_name, b.barangay_id AS bry_id,
     t.tier_id, t.tier_name, t.fine_amount, t.requires_clamping,
     v.plate_number, v.total_violations, v.is_repeat_offender,
-    COALESCE(r.anonymous_alias, u.anonymous_alias) AS anonymous_alias
+    COALESCE(r.anonymous_alias, u.anonymous_alias) AS anonymous_alias,
+    mq.response_deadline
   FROM VIOLATION_REPORTS r
   LEFT JOIN STREETS s        ON s.street_id   = r.street_id
   LEFT JOIN BARANGAYS b      ON b.barangay_id = COALESCE(r.barangay_id, s.barangay_id)
   LEFT JOIN PENALTY_TIERS t  ON t.tier_id     = r.penalty_tier_id
   LEFT JOIN VEHICLES v       ON v.vehicle_id  = r.vehicle_id
   LEFT JOIN USERS u          ON u.user_id     = r.citizen_id
+  LEFT JOIN MTPB_QUEUE mq    ON mq.report_id  = r.report_id
 `;
 
 function mapRow(r) {
@@ -159,10 +161,17 @@ const barangayStats = async (req, res, next) => {
 // Philippine plate format — current "ABC 1234", legacy "ABC 123", or
 // motorcycle "ABC 12-3456". Mirrors utils/plateValidator.js PLATE_FORMAT.
 const PLATE_RE = /^[A-Z]{3} \d{4}$|^[A-Z]{3} \d{3}$|^[A-Z]{3} \d{2}-\d{4}$/;
-const RESPONSE_WINDOW_MIN = () =>
-  parseInt(process.env.MTPB_RESPONSE_WINDOW_MINUTES, 10)
-  || parseInt(process.env.MTPB_RESPONSE_TIMER_MINUTES, 10)
-  || 60;
+const getResponseWindowMin = async () => {
+  try {
+    const [[row]] = await pool.execute(
+      "SELECT config_value FROM SYSTEM_CONFIG WHERE config_key = 'escalation_response_window_minutes'"
+    );
+    if (row) return parseInt(row.config_value, 10) || 60;
+  } catch {}
+  return parseInt(process.env.MTPB_RESPONSE_WINDOW_MINUTES, 10)
+    || parseInt(process.env.MTPB_RESPONSE_TIMER_MINUTES, 10)
+    || 60;
+};
 
 const verify = async (req, res, next) => {
   const reportId = parseInt(req.params.reportId, 10);
@@ -201,6 +210,7 @@ const verify = async (req, res, next) => {
     }
 
     if (action === 'approve') {
+      const responseWindowMin = await getResponseWindowMin();
       // Atomic: status update (+ optional plate override) and queue entry.
       const connection = await pool.getConnection();
       try {
@@ -219,7 +229,7 @@ const verify = async (req, res, next) => {
              response_deadline = DATE_ADD(NOW(), INTERVAL ? MINUTE),
              renotified = FALSE, renotified_at = NULL, is_escalated = FALSE,
              escalated_at = NULL, escalation_reason = NULL`,
-          [reportId, RESPONSE_WINDOW_MIN(), RESPONSE_WINDOW_MIN()]
+          [reportId, responseWindowMin, responseWindowMin]
         );
         await connection.commit();
       } catch (err) {
@@ -265,6 +275,7 @@ const mtpbQueue = async (req, res, next) => {
       m.time_in_queue_minutes = r.verified_at
         ? Math.max(0, Math.floor((now - new Date(r.verified_at).getTime()) / 60000))
         : null;
+      m.response_deadline = r.response_deadline ?? null;
       return m;
     });
     return res.json({ success: true, message: 'Success', data });
@@ -368,7 +379,7 @@ const resolveAndCount = async (reportId, vehicleId, outcome, ticketReference) =>
     if (countable && vehicleId) {
       await connection.execute(
         `UPDATE VEHICLES
-            SET is_repeat_offender = ((total_violations + 1) >= 2),
+            SET is_repeat_offender = TRUE,
                 total_violations   = total_violations + 1
           WHERE vehicle_id = ?`,
         [vehicleId]

@@ -96,8 +96,10 @@ export const adminUsers = {
   update:     (id, body) =>    request(`/api/admin/users/${id}`,        { method: 'PATCH', body: JSON.stringify(body) }),
   deactivate: (id) =>          request(`/api/admin/users/${id}/deactivate`, { method: 'PATCH' }),
   reactivate: (id) =>          request(`/api/admin/users/${id}/reactivate`, { method: 'PATCH' }),
-  officers:        ()        => request('/api/admin/officers'),
-  officerStats:    (id)      => request(`/api/admin/officers/${id}/stats`),
+  delete:     (id) =>          request(`/api/admin/users/${id}`,            { method: 'DELETE' }),
+  officers:              ()          => request('/api/admin/officers'),
+  officerStats:          (id)        => request(`/api/admin/officers/${id}/stats`),
+  setOfficerSupervisor:  (id, supId) => request(`/api/admin/officers/${id}/supervisor`, { method: 'PATCH', body: JSON.stringify({ supervisor_id: supId }) }),
 }
 
 // System config (supervisor + admin)

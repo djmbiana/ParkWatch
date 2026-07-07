@@ -3,6 +3,8 @@ import { useOutletContext } from 'react-router-dom'
 import { adminUsers } from '../../services/api'
 import StatusBadge from '../../components/StatusBadge'
 import LoadingSpinner from '../../components/LoadingSpinner'
+import { getStoredUser } from '../../utils/auth'
+import { useToast } from '../../components/ToastContext'
 
 function KV({ label, children }) {
   return (
@@ -24,20 +26,45 @@ function StatPill({ label, value, color }) {
 
 export default function SupervisorOfficers() {
   const { setPageTitle } = useOutletContext()
+  const toast = useToast()
+  const me = getStoredUser()
   const [officers, setOfficers] = useState([])
   const [loading, setLoading] = useState(true)
   const [profileModal, setProfileModal] = useState(null)
   const [profileData, setProfileData] = useState(null)
   const [profileLoading, setProfileLoading] = useState(false)
+  const [assigningId, setAssigningId] = useState(null)
 
   useEffect(() => { setPageTitle('Officers') }, [setPageTitle])
 
-  useEffect(() => {
+  const fetchOfficers = () => {
     adminUsers.officers()
       .then(data => setOfficers(Array.isArray(data) ? data : []))
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [])
+  }
+
+  useEffect(() => { fetchOfficers() }, [])
+
+  const handleClaim = async (officer) => {
+    setAssigningId(officer.user_id)
+    try {
+      await adminUsers.setOfficerSupervisor(officer.user_id, me?.id ?? me?.user_id)
+      toast(`${officer.first_name} ${officer.last_name} assigned to your team.`, 'success')
+      fetchOfficers()
+    } catch (e) { toast(e.message, 'error') }
+    finally { setAssigningId(null) }
+  }
+
+  const handleRelease = async (officer) => {
+    setAssigningId(officer.user_id)
+    try {
+      await adminUsers.setOfficerSupervisor(officer.user_id, null)
+      toast(`${officer.first_name} ${officer.last_name} removed from your team.`, 'success')
+      fetchOfficers()
+    } catch (e) { toast(e.message, 'error') }
+    finally { setAssigningId(null) }
+  }
 
   const openProfile = (officer) => {
     setProfileModal(officer)
@@ -60,7 +87,7 @@ export default function SupervisorOfficers() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '2px solid var(--color-border-strong)' }}>
-              {['Name', 'Badge', 'Email', 'Supervisor', 'Status', 'Active', 'Total Resolved'].map(h => (
+              {['Name', 'Badge', 'Email', 'Supervisor', 'Status', 'Active', 'Total Resolved', ''].map(h => (
                 <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#0F1117', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{h}</th>
               ))}
             </tr>
@@ -94,6 +121,25 @@ export default function SupervisorOfficers() {
                 </td>
                 <td style={{ padding: '0 12px', fontSize: 13, fontWeight: 600, color: '#0F1117' }}>
                   {o.resolved_total ?? 0}
+                </td>
+                <td style={{ padding: '0 12px' }} onClick={e => e.stopPropagation()}>
+                  {o.supervisor_id === (me?.id ?? me?.user_id) ? (
+                    <button
+                      disabled={assigningId === o.user_id}
+                      onClick={() => handleRelease(o)}
+                      style={{ padding: '4px 10px', fontSize: 12, borderRadius: 6, border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-secondary)', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    >
+                      Remove
+                    </button>
+                  ) : !o.supervisor_id ? (
+                    <button
+                      disabled={assigningId === o.user_id}
+                      onClick={() => handleClaim(o)}
+                      style={{ padding: '4px 10px', fontSize: 12, borderRadius: 6, border: 'none', background: 'var(--accent)', color: '#fff', cursor: 'pointer', whiteSpace: 'nowrap' }}
+                    >
+                      Assign to me
+                    </button>
+                  ) : null}
                 </td>
               </tr>
             ))}

@@ -104,6 +104,52 @@ const reactivateUser = async (req, res, next) => {
   } catch (err) { return next(err); }
 };
 
+// Supervisor or Admin can assign a supervisor to an officer.
+// Supervisors may only assign themselves; admins can assign anyone.
+const setOfficerSupervisor = async (req, res, next) => {
+  const officerId = parseInt(req.params.officerId, 10);
+  const { supervisor_id } = req.body; // null/undefined → unassign
+  try {
+    const [[officer]] = await pool.execute(
+      'SELECT user_id, role, supervisor_id FROM USERS WHERE user_id = ?', [officerId]
+    );
+    if (!officer) return fail(res, 404, 'Officer not found.');
+    if (officer.role !== 'mtpb_officer') return fail(res, 422, 'Target user is not an MTPB Officer.');
+
+    let resolvedSupId = supervisor_id ? parseInt(supervisor_id, 10) : null;
+    if (req.user.role === 'mtpb_supervisor') {
+      // Supervisors can only claim/release for themselves
+      resolvedSupId = supervisor_id ? req.user.id : null;
+    }
+    if (resolvedSupId) {
+      const [[sup]] = await pool.execute(
+        "SELECT user_id FROM USERS WHERE user_id = ? AND role = 'mtpb_supervisor'", [resolvedSupId]
+      );
+      if (!sup) return fail(res, 422, 'supervisor_id must reference an MTPB Supervisor.');
+    }
+    await pool.execute('UPDATE USERS SET supervisor_id = ? WHERE user_id = ?', [resolvedSupId, officerId]);
+    return res.json({ success: true, message: resolvedSupId ? 'Supervisor assigned.' : 'Supervisor removed.' });
+  } catch (err) { return next(err); }
+};
+
+const deleteUser = async (req, res, next) => {
+  const { userId } = req.params;
+  try {
+    const [[user]] = await pool.execute(
+      'SELECT user_id, email, role, is_active FROM USERS WHERE user_id = ?', [userId]
+    );
+    if (!user) return fail(res, 404, 'User not found.');
+    if (user.is_active) return fail(res, 409, 'Only inactive accounts can be deleted. Deactivate first.');
+    if (user.role === 'admin' && parseInt(userId, 10) === req.user?.id) {
+      return fail(res, 409, 'Cannot delete your own account.');
+    }
+    await logAudit(req, 'users_mgt', 'edit_profile', 'delete', 'USERS', userId,
+      { email: user.email, role: user.role }, null);
+    await pool.execute('DELETE FROM USERS WHERE user_id = ? AND is_active = FALSE', [userId]);
+    return res.json({ success: true, message: 'User account permanently deleted.' });
+  } catch (err) { return next(err); }
+};
+
 const listOfficers = async (req, res, next) => {
   try {
     const [rows] = await pool.execute(
@@ -179,7 +225,7 @@ const getEscalationConfig = async (req, res, next) => {
 
 const updateEscalationConfig = async (req, res, next) => {
   const { response_window_minutes, renotify_window_minutes } = req.body;
-  const userId = req.user?.user_id;
+  const userId = req.user?.id;
   try {
     if (response_window_minutes != null) {
       const val = parseInt(response_window_minutes, 10);
@@ -519,7 +565,7 @@ const createTier = async (req, res, next) => {
 };
 
 module.exports = {
-  listUsers, createUser, updateUser, deactivateUser, reactivateUser,
+  listUsers, createUser, updateUser, deactivateUser, reactivateUser, deleteUser, setOfficerSupervisor,
   listOfficers, getOfficerStats, getEscalationConfig, updateEscalationConfig,
   listBarangays, createBarangay, toggleBarangay, setBarangayLocation,
   listStreets, createStreet, deactivateStreet, listRules, toggleRule, createRule, updateRule,

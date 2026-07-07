@@ -17,8 +17,10 @@ router.post  ('/users',                       ...cp('users_mgt','edit_profile','
 router.patch ('/users/:userId',               ...cp('users_mgt','edit_profile','update'),  adminController.updateUser);
 router.patch ('/users/:userId/deactivate',    ...cp('users_mgt','status_update','update'), adminController.deactivateUser);
 router.patch ('/users/:userId/reactivate',    ...cp('users_mgt','status_update','update'), adminController.reactivateUser);
+router.delete('/users/:userId',               ...cp('users_mgt','status_update','update'), adminController.deleteUser);
 router.get   ('/officers',                    ...cp('users_mgt','edit_profile','read'),    adminController.listOfficers);
 router.get   ('/officers/:officerId/stats',   authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), adminController.getOfficerStats);
+router.patch ('/officers/:officerId/supervisor', authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), adminController.setOfficerSupervisor);
 
 // ─── System Config ───────────────────────────────────────────────────────────
 router.get   ('/system-config/escalation',    authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), adminController.getEscalationConfig);

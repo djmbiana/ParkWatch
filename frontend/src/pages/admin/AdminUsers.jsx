@@ -38,7 +38,7 @@ function StatusPill({ user }) {
   return <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, color: '#059669', background: '#ECFDF5', textTransform: 'uppercase' }}>Active</span>
 }
 
-const BLANK_FORM = { first_name: '', last_name: '', email: '', role: 'brgy_official', barangay_id: '' }
+const BLANK_FORM = { first_name: '', last_name: '', email: '', role: 'brgy_official', barangay_id: '', supervisor_id: '' }
 
 export default function AdminUsers() {
   const { setPageTitle } = useOutletContext()
@@ -56,6 +56,8 @@ export default function AdminUsers() {
   const [showProvision, setShowProvision] = useState(false)
   const [showEdit, setShowEdit] = useState(null)
   const [deactivateTarget, setDeactivateTarget] = useState(null)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
   const [form, setForm] = useState(BLANK_FORM)
   const [formErr, setFormErr] = useState({})
   const [formLoading, setFormLoading] = useState(false)
@@ -79,6 +81,7 @@ export default function AdminUsers() {
 
   // Citizens have no staff account — exclude them from the admin view entirely
   const staffUsers = users.filter(u => u.role !== 'citizen')
+  const supervisors = staffUsers.filter(u => u.role === 'mtpb_supervisor' && u.is_active)
 
   const counts = {
     brgy_official:   staffUsers.filter(u => u.role === 'brgy_official').length,
@@ -126,6 +129,9 @@ export default function AdminUsers() {
     setFormLoading(true)
     try {
       await adminUsers.update(showEdit.user_id, form)
+      if (form.role === 'mtpb_officer' && String(form.supervisor_id) !== String(showEdit.supervisor_id ?? '')) {
+        await adminUsers.assignSupervisor(showEdit.user_id, form.supervisor_id || null)
+      }
       toast('User updated.', 'success')
       setShowEdit(null)
       fetchAll()
@@ -152,6 +158,17 @@ export default function AdminUsers() {
     } catch (e) { toast(e.message, 'error') }
   }
 
+  const handleDelete = async () => {
+    setDeleteLoading(true)
+    try {
+      await adminUsers.delete(deleteTarget.user_id)
+      toast('Account permanently deleted.', 'success')
+      setDeleteTarget(null)
+      fetchAll()
+    } catch (e) { toast(e.message, 'error') }
+    finally { setDeleteLoading(false) }
+  }
+
   const handleCopy = () => {
     navigator.clipboard.writeText(tempPassword ?? '').then(() => {
       setCopied(true)
@@ -160,7 +177,7 @@ export default function AdminUsers() {
   }
 
   const openEdit = (u) => {
-    setForm({ first_name: u.first_name ?? '', last_name: u.last_name ?? '', email: u.email ?? '', role: u.role ?? 'brgy_official', barangay_id: u.barangay_id ?? '' })
+    setForm({ first_name: u.first_name ?? '', last_name: u.last_name ?? '', email: u.email ?? '', role: u.role ?? 'brgy_official', barangay_id: u.barangay_id ?? '', supervisor_id: u.supervisor_id ?? '' })
     setFormErr({})
     setShowEdit(u)
   }
@@ -241,14 +258,17 @@ export default function AdminUsers() {
                   </td>
                   <td style={{ padding: '0 12px' }}>
                     <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                      {canEdit && (
+                      {!!canEdit && (
                         <button onClick={() => openEdit(u)} style={actionBtn('#0F1117')}>Edit</button>
                       )}
-                      {canStatus && u.is_active && (
+                      {!!canStatus && !!u.is_active && (
                         <button onClick={() => setDeactivateTarget(u)} style={actionBtn('#EF4444')}>Deactivate</button>
                       )}
-                      {canStatus && !u.is_active && (
+                      {!!canStatus && !u.is_active && (
                         <button onClick={() => handleReactivate(u)} style={actionBtn('#10B981')}>Reactivate</button>
+                      )}
+                      {!!canStatus && !u.is_active && (
+                        <button onClick={() => setDeleteTarget(u)} style={actionBtn('#7F1D1D')}>Delete</button>
                       )}
                     </div>
                   </td>
@@ -346,6 +366,20 @@ export default function AdminUsers() {
                 </select>
               </div>
             )}
+            {form.role === 'mtpb_officer' && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>Assigned Supervisor</label>
+                <select value={form.supervisor_id} onChange={e => setForm(p => ({ ...p, supervisor_id: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-bg)' }}>
+                  <option value="">- Unassigned -</option>
+                  {supervisors.map(s => (
+                    <option key={s.user_id} value={s.user_id}>
+                      {s.first_name} {s.last_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
               <button onClick={() => setShowEdit(null)} style={{ padding: '8px 20px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'transparent', fontSize: 14, cursor: 'pointer' }}>Cancel</button>
               <button onClick={handleEdit} disabled={formLoading} style={{ padding: '8px 20px', borderRadius: 6, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -365,6 +399,17 @@ export default function AdminUsers() {
           loading={deactivateLoading}
           onConfirm={handleDeactivate}
           onCancel={() => setDeactivateTarget(null)}
+        />
+      )}
+      {deleteTarget && (
+        <ConfirmModal
+          title="Permanently delete this account?"
+          message={`This will permanently remove ${deleteTarget.first_name} ${deleteTarget.last_name} (${deleteTarget.email}). This cannot be undone.`}
+          confirmLabel="Delete Permanently"
+          confirmVariant="danger"
+          loading={deleteLoading}
+          onConfirm={handleDelete}
+          onCancel={() => setDeleteTarget(null)}
         />
       )}
     </div>

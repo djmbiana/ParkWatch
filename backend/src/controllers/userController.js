@@ -40,7 +40,7 @@ const updateMe = async (req, res, next) => {
   }
 
   const userId = req.user.id;
-  const { first_name, last_name, current_password, new_password } = req.body;
+  const { first_name, last_name, employee_id, current_password, new_password } = req.body;
 
   try {
     const [[user]] = await pool.execute(
@@ -59,6 +59,10 @@ const updateMe = async (req, res, next) => {
     if (typeof last_name === 'string' && last_name.trim()) {
       fields.push('last_name = ?');
       values.push(last_name.trim());
+    }
+    if (typeof employee_id === 'string' && employee_id.trim() && user.role !== 'citizen') {
+      fields.push('anonymous_alias = ?');
+      values.push(employee_id.trim());
     }
 
     // Password change is all-or-nothing and requires the current password.

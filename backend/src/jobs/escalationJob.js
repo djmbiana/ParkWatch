@@ -183,7 +183,7 @@ let task = null;
 // timer never starts under jest/supertest, which import app.js directly.
 const start = () => {
   if (task) return task;
-  task = cron.schedule('*/5 * * * *', async () => {
+  task = cron.schedule('* * * * *', async () => {
     logger.info('[Escalation] Running escalation job...');
     try {
       await runNow();
@@ -191,7 +191,7 @@ const start = () => {
       logger.error(`[Escalation] Job error: ${err.message}`);
     }
   });
-  logger.info(`[Escalation] Scheduled every 5 min (windows loaded from DB at runtime).`);
+  logger.info(`[Escalation] Scheduled every 1 min (windows loaded from DB at runtime).`);
   return task;
 };
 

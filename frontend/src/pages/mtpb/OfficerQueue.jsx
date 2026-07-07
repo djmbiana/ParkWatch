@@ -13,25 +13,33 @@ import useAutoRefresh from '../../hooks/useAutoRefresh'
 
 const REFRESH_MS = 15000
 
-function TimeLeft({ verifiedAt }) {
+function TimeLeft({ deadline }) {
   const [display, setDisplay] = useState('')
   const [urgent, setUrgent] = useState(false)
 
   useEffect(() => {
-    if (!verifiedAt) { setDisplay('-'); return }
+    if (!deadline) { setDisplay('-'); setUrgent(false); return }
     const update = () => {
-      const mins = Math.floor((Date.now() - new Date(verifiedAt)) / 60000)
-      setUrgent(mins < 10)
-      if (mins < 60) setDisplay(`${mins} min`)
-      else setDisplay(`${Math.floor(mins / 60)}h ${mins % 60}m`)
+      const msLeft = new Date(deadline) - Date.now()
+      if (msLeft <= 0) {
+        setUrgent(true)
+        setDisplay('Overdue')
+        return
+      }
+      const secsLeft = Math.ceil(msLeft / 1000)
+      const minsLeft = Math.floor(msLeft / 60000)
+      setUrgent(minsLeft < 5)
+      if (secsLeft < 120) setDisplay(`${secsLeft}s`)
+      else if (minsLeft < 60) setDisplay(`${minsLeft} min`)
+      else setDisplay(`${Math.floor(minsLeft / 60)}h ${minsLeft % 60}m`)
     }
     update()
-    const id = setInterval(update, 60000)
+    const id = setInterval(update, 1000)
     return () => clearInterval(id)
-  }, [verifiedAt])
+  }, [deadline])
 
   const color = urgent ? '#EF4444' : display === '-' ? 'var(--color-text-muted)'
-    : parseInt(display) <= 30 ? '#F59E0B' : 'var(--color-text-muted)'
+    : '#F59E0B'
 
   return <span style={{ fontSize: 12, fontWeight: 600, color }}>{display}</span>
 }
@@ -187,7 +195,7 @@ export default function OfficerQueue() {
                   <td style={{ padding: '0 12px' }}><PlateBadge plate={row.plate_number} confidence={row.ocr_confidence_score} manual={row.manual_plate_input} /></td>
                   <td style={{ padding: '0 12px', fontSize: 13 }}>{row.street_name ?? '-'}</td>
                   <td style={{ padding: '0 12px' }}><PenaltyTierBadge tier_name={row.tier_name} /></td>
-                  <td style={{ padding: '0 12px' }}><TimeLeft verifiedAt={row.verified_at} /></td>
+                  <td style={{ padding: '0 12px' }}><TimeLeft deadline={row.response_deadline} /></td>
                   <td style={{ padding: '0 12px' }}><StatusBadge status={row.status} /></td>
                   <td style={{ padding: '0 12px' }} onClick={e => e.stopPropagation()}>
                     <ActionCell row={row} />

@@ -27,6 +27,7 @@ export default function ProfilePage() {
 
   const [firstName, setFirstName] = useState(user?.first_name ?? '')
   const [lastName, setLastName] = useState(user?.last_name ?? '')
+  const [employeeId, setEmployeeId] = useState(user?.anonymous_alias ?? '')
   const [currentPw, setCurrentPw] = useState('')
   const [newPw, setNewPw] = useState('')
   const [confirmPw, setConfirmPw] = useState('')
@@ -43,6 +44,7 @@ export default function ProfilePage() {
     const body = {}
     if (firstName.trim() && firstName.trim() !== user?.first_name) body.first_name = firstName.trim()
     if (lastName.trim() && lastName.trim() !== user?.last_name) body.last_name = lastName.trim()
+    if (user?.role !== 'citizen' && employeeId.trim() && employeeId.trim() !== user?.anonymous_alias) body.employee_id = employeeId.trim()
 
     if (changingPw) {
       if (newPw.length < 8) { toast('New password must be at least 8 characters.', 'error'); return }
@@ -60,6 +62,7 @@ export default function ProfilePage() {
       const updated = data?.user ?? data
       localStorage.setItem('parkwatch_user', JSON.stringify(updated))
       setUser(updated)
+      setEmployeeId(updated?.anonymous_alias ?? employeeId)
       setCurrentPw(''); setNewPw(''); setConfirmPw('')
       toast('Profile updated.', 'success')
     } catch (err) {
@@ -98,6 +101,21 @@ export default function ProfilePage() {
             <input style={inputStyle} value={lastName} onChange={(e) => setLastName(e.target.value)} />
           </div>
         </div>
+
+        {user?.role !== 'citizen' && (
+          <div style={{ marginTop: 14 }}>
+            <label style={labelStyle}>Badge / Employee ID</label>
+            <input
+              style={inputStyle}
+              value={employeeId}
+              onChange={(e) => setEmployeeId(e.target.value)}
+              placeholder="e.g. MTPB-2025-001"
+            />
+            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>
+              Shown on enforcement records and queue listings.
+            </div>
+          </div>
+        )}
 
         <div style={{ marginTop: 24, paddingTop: 20, borderTop: '1px solid var(--color-border)' }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--color-text-secondary)', marginBottom: 4 }}>Change password</div>
