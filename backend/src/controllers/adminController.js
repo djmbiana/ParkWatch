@@ -50,8 +50,8 @@ const createUser = async (req, res, next) => {
     const alias = `Admin${Date.now()}`;
 
     const [result] = await pool.execute(
-      `INSERT INTO USERS (first_name, last_name, email, password_hash, role, barangay_id, anonymous_alias, is_verified, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, TRUE)`,
+      `INSERT INTO USERS (first_name, last_name, email, password_hash, role, barangay_id, anonymous_alias, is_verified, is_active, must_change_password)
+       VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, TRUE, TRUE)`,
       [first_name, last_name, email, hash, role, barangay_id || null, alias]
     );
 
@@ -215,7 +215,10 @@ const listBarangays = async (req, res, next) => {
     const [rows] = await pool.execute(
       `SELECT b.barangay_id, b.barangay_name, b.barangay_number, b.is_participating AS is_active,
               b.latitude, b.longitude,
-              CONCAT(u.first_name, ' ', u.last_name) AS assigned_official,
+              (SELECT CONCAT(u2.first_name, ' ', u2.last_name)
+               FROM USERS u2
+               WHERE u2.barangay_id = b.barangay_id AND u2.role = 'brgy_official' AND u2.is_active = TRUE
+               ORDER BY u2.user_id LIMIT 1) AS assigned_official,
               (SELECT COUNT(*) FROM STREETS s WHERE s.barangay_id = b.barangay_id AND s.is_active = TRUE) AS streets_enrolled,
               (SELECT COUNT(*) FROM VIOLATION_REPORTS r
                 LEFT JOIN STREETS s2 ON s2.street_id = r.street_id
@@ -223,7 +226,6 @@ const listBarangays = async (req, res, next) => {
                   AND MONTH(r.submitted_at) = MONTH(CURDATE())
                   AND YEAR(r.submitted_at) = YEAR(CURDATE())) AS reports_this_month
        FROM BARANGAYS b
-       LEFT JOIN USERS u ON u.barangay_id = b.barangay_id AND u.role = 'brgy_official' AND u.is_active = TRUE
        WHERE 1=1 ${scopeFilter}
        ORDER BY b.barangay_name`,
       scopeParams
@@ -309,7 +311,7 @@ const listStreets = async (req, res, next) => {
        ORDER BY b.barangay_name, s.street_name`,
       scopeParams
     );
-    const [rules] = await pool.execute('SELECT rule_id, street_id, violation_type, is_active FROM PARKING_RULES ORDER BY violation_type');
+    const [rules] = await pool.execute('SELECT rule_id, street_id, violation_type, description, ordinance, is_active FROM PARKING_RULES ORDER BY violation_type');
 
     const rulesByStreet = {};
     for (const r of rules) {
@@ -373,7 +375,7 @@ const listRules = async (req, res, next) => {
     if (restrict_to_barangay) { conditions.push('s.barangay_id = ?'); params.push(own_barangay_id); }
     const where = conditions.length ? 'WHERE ' + conditions.join(' AND ') : '';
     const [rows] = await pool.execute(
-      `SELECT pr.rule_id, pr.street_id, pr.violation_type, pr.is_active, s.street_name
+      `SELECT pr.rule_id, pr.street_id, pr.violation_type, pr.description, pr.ordinance, pr.is_active, s.street_name
          FROM PARKING_RULES pr
          LEFT JOIN STREETS s ON s.street_id = pr.street_id
          ${where}
@@ -403,7 +405,7 @@ const toggleRule = async (req, res, next) => {
 };
 
 const createRule = async (req, res, next) => {
-  const { street_id, violation_type } = req.body;
+  const { street_id, violation_type, description, ordinance } = req.body;
   if (!street_id || !violation_type) return fail(res, 400, 'street_id and violation_type are required.');
   const { restrict_to_barangay, own_barangay_id } = req.permScope;
   if (restrict_to_barangay) {
@@ -414,10 +416,39 @@ const createRule = async (req, res, next) => {
   }
   try {
     const [result] = await pool.execute(
-      'INSERT INTO PARKING_RULES (street_id, violation_type) VALUES (?, ?)',
-      [street_id, violation_type.trim()]
+      'INSERT INTO PARKING_RULES (street_id, violation_type, description, ordinance) VALUES (?, ?, ?, ?)',
+      [street_id, violation_type.trim(), description?.trim() ?? null, ordinance?.trim() ?? null]
     );
     return res.status(201).json({ success: true, message: 'Rule created.', data: { rule_id: result.insertId } });
+  } catch (err) { return next(err); }
+};
+
+// PATCH /api/admin/parking-rules/:ruleId — update description and/or ordinance text.
+const updateRule = async (req, res, next) => {
+  const ruleId = parseInt(req.params.ruleId, 10);
+  if (!Number.isInteger(ruleId) || ruleId <= 0) return fail(res, 400, 'Invalid rule id.');
+  const { description, ordinance } = req.body;
+  if (description === undefined && ordinance === undefined) {
+    return fail(res, 400, 'Provide description and/or ordinance to update.');
+  }
+  const { restrict_to_barangay, own_barangay_id } = req.permScope;
+  try {
+    if (restrict_to_barangay) {
+      const [[rule]] = await pool.execute(
+        'SELECT s.barangay_id FROM PARKING_RULES pr JOIN STREETS s ON s.street_id = pr.street_id WHERE pr.rule_id = ?',
+        [ruleId]
+      );
+      if (!rule || rule.barangay_id !== own_barangay_id) {
+        return fail(res, 403, 'You can only manage rules for streets in your own barangay.');
+      }
+    }
+    const fields = [];
+    const params = [];
+    if (description !== undefined) { fields.push('description = ?'); params.push(description?.trim() ?? null); }
+    if (ordinance  !== undefined) { fields.push('ordinance = ?');   params.push(ordinance?.trim()  ?? null); }
+    params.push(ruleId);
+    await pool.execute(`UPDATE PARKING_RULES SET ${fields.join(', ')} WHERE rule_id = ?`, params);
+    return res.json({ success: true, message: 'Rule updated.' });
   } catch (err) { return next(err); }
 };
 
@@ -491,6 +522,6 @@ module.exports = {
   listUsers, createUser, updateUser, deactivateUser, reactivateUser,
   listOfficers, getOfficerStats, getEscalationConfig, updateEscalationConfig,
   listBarangays, createBarangay, toggleBarangay, setBarangayLocation,
-  listStreets, createStreet, deactivateStreet, listRules, toggleRule, createRule,
+  listStreets, createStreet, deactivateStreet, listRules, toggleRule, createRule, updateRule,
   listTiers, updateTier, createTier,
 };

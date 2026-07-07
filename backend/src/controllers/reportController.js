@@ -20,7 +20,7 @@ const logger = require('../config/logger');
 const ocrService = require('../services/ocrService');
 const notificationService = require('../services/notificationService');
 const storageService = require('../services/storageService');
-const { CONDUCTION_PLATE, NO_PLATE_ID, normalizePlate } = require('../utils/plateValidator');
+const { CONDUCTION_PLATE, TEMPORARY_PLATE, TEMPORARY_MC_PLATE, NO_PLATE_ID, normalizePlate } = require('../utils/plateValidator');
 
 // VIOLATION_REPORTS.ocr_raw_response is TEXT (64KB); large Vision responses
 // (full bounding boxes) can exceed it, so cap before insert.
@@ -286,10 +286,10 @@ const create = async (req, res, next) => {
   const citizenId = req.user?.id ?? null;
   const anonymousAlias = resolveAnonymousAlias(req.body.anonymous_alias);
 
-  // plate_type distinguishes standard LTO plates from conduction stickers and
-  // vehicles with no plate. Defaults to 'regular' for backward compatibility.
+  // plate_type distinguishes standard LTO plates from conduction stickers,
+  // temporary plates, and vehicles with no plate number.
   const rawPlateType = String(req.body.plate_type ?? 'regular').toLowerCase();
-  const plateType = ['regular', 'conduction', 'no_plate'].includes(rawPlateType)
+  const plateType = ['regular', 'conduction', 'temporary', 'no_plate'].includes(rawPlateType)
     ? rawPlateType
     : 'regular';
 
@@ -300,11 +300,44 @@ const create = async (req, res, next) => {
     const { objectPath } = storageService.parsePhotoRef(photo_url);
     const additionalPhotos = parseAdditionalPhotos(req.body.additional_photos);
 
-    // --- Conduction sticker / temporary plate (CS-XXXXXXXX) -----------------
+    // --- Conduction sticker (yellow LTO sticker, format "AA 123A" / "D1 E777") ---
     if (plateType === 'conduction') {
       const rawPlate = normalizePlate(req.body.plate ?? '');
       if (!CONDUCTION_PLATE.test(rawPlate)) {
-        return fail(res, 422, 'Conduction sticker format is invalid. Expected CS- followed by 4-12 alphanumeric characters.');
+        return fail(res, 422,
+          'Conduction sticker number format is invalid. ' +
+          'Expected a 2-character district code followed by a 4-character alphanumeric body (e.g. "AA 123A" or "D1 E777").'
+        );
+      }
+      return await finishPipeline(res, {
+        plate: rawPlate,
+        plateType,
+        citizenId,
+        anonymousAlias,
+        fcmToken: req.body.fcm_token,
+        streetId,
+        barangayId: rule.barangay_id,
+        violationType: violation_type,
+        photoPath: objectPath,
+        additionalPhotos,
+        ocrRawResponse: null,
+        ocrExtractedPlate: null,
+        ocrConfidenceScore: null,
+        manualPlateInput: rawPlate,
+      });
+    }
+
+    // --- Temporary Motor Vehicle Plate (white "REGISTERED" / dealer-issued plate) ---
+    // 4-wheel: AB 1234 (2 letters + 4 digits).
+    // Improvised MC: AB 12345 (2 letters + 5 digits, for lost/mutilated motorcycle plates).
+    if (plateType === 'temporary') {
+      const rawPlate = normalizePlate(req.body.plate ?? '');
+      if (!TEMPORARY_PLATE.test(rawPlate) && !TEMPORARY_MC_PLATE.test(rawPlate)) {
+        return fail(res, 422,
+          'Temporary plate number format is invalid. ' +
+          'Expected 2 letters + 4 digits (e.g. "AB 1234") for 4-wheel vehicles, ' +
+          'or 2 letters + 5 digits (e.g. "AB 12345") for improvised motorcycle plates.'
+        );
       }
       return await finishPipeline(res, {
         plate: rawPlate,
@@ -802,9 +835,11 @@ const checkDuplicate = async (req, res, next) => {
 
 // ---------------------------------------------------------------------------
 // PATCH /api/reports/:reportId/additional-photos
-// FR: duplicate-report add-context flow. The original reporter's device has the
-// access_token for the report; they use it to attach extra evidence photos to
-// the existing report rather than creating a duplicate submission.
+// Two modes:
+//   1. Original reporter (token provided): validates ownership, no status guard.
+//   2. Witness / corroborator (no token): any citizen can add supporting photos
+//      to an active report (pending / verified / acknowledged / dispatched).
+//      Limited to 3 witness photos per call; capped at 10 total on the report.
 // ---------------------------------------------------------------------------
 const attachAdditionalPhotos = async (req, res, next) => {
   const reportId = parseInt(req.params.reportId, 10);
@@ -812,22 +847,34 @@ const attachAdditionalPhotos = async (req, res, next) => {
     return fail(res, 400, 'Invalid report id.');
   }
 
-  const accessToken = req.query.token ?? req.body.access_token;
-  if (!accessToken || typeof accessToken !== 'string') {
-    return fail(res, 401, 'Access token required.');
-  }
+  const accessToken = req.query.token ?? req.body.access_token ?? null;
+  const isOwner = !!(accessToken && typeof accessToken === 'string');
 
   const newPhotos = parseAdditionalPhotos(req.body.additional_photos);
   if (!newPhotos.length) return fail(res, 400, 'No valid photos provided.');
 
+  // Witnesses are capped at 3 photos per call to prevent bulk spam.
+  if (!isOwner && newPhotos.length > 3) {
+    return fail(res, 400, 'Witness submissions are limited to 3 photos at a time.');
+  }
+
   try {
     const [[report]] = await pool.execute(
-      'SELECT report_id, additional_photos, access_token FROM VIOLATION_REPORTS WHERE report_id = ? LIMIT 1',
+      'SELECT report_id, status, additional_photos, access_token FROM VIOLATION_REPORTS WHERE report_id = ? LIMIT 1',
       [reportId]
     );
     if (!report) return fail(res, 404, 'Report not found.');
-    if (!tokenMatches(accessToken, report.access_token)) {
-      return fail(res, 403, 'Invalid access token.');
+
+    if (isOwner) {
+      if (!tokenMatches(accessToken, report.access_token)) {
+        return fail(res, 403, 'Invalid access token.');
+      }
+    } else {
+      // Witness photos only allowed while the report is still active.
+      const activeStatuses = ['pending', 'verified', 'acknowledged', 'dispatched'];
+      if (!activeStatuses.includes(report.status)) {
+        return fail(res, 422, 'Supporting photos can only be added to active reports.');
+      }
     }
 
     let existing = [];
@@ -843,7 +890,7 @@ const attachAdditionalPhotos = async (req, res, next) => {
     return res.json({
       success: true,
       message: 'Photos attached.',
-      data: { report_id: reportId, added: newPhotos.length },
+      data: { report_id: reportId, added: newPhotos.length, is_owner: isOwner },
     });
   } catch (err) {
     return next(err);

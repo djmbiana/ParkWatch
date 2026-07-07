@@ -39,10 +39,16 @@ const loginValidators = [
   body('password').isString().notEmpty().withMessage('Password is required.'),
 ];
 
+const changePasswordValidators = [
+  body('current_password').isString().notEmpty().withMessage('Current password is required.'),
+  body('new_password').isString().isLength({ min: 8, max: 72 }).withMessage('New password must be 8–72 characters.'),
+];
+
 // --- Routes --------------------------------------------------------------
-router.post('/register', authLimiter, registerValidators, authController.register);
-router.post('/login',    authLimiter, loginValidators,    authController.login);
-router.get ('/me',       authenticate,       authController.me);
+router.post('/register',        authLimiter, registerValidators,        authController.register);
+router.post('/login',           authLimiter, loginValidators,           authController.login);
+router.get ('/me',              authenticate,                            authController.me);
+router.post('/change-password', authenticate, changePasswordValidators, authController.changePassword);
 
 // Test route for role-based access control — confirms authorize() middleware
 // blocks unauthorized roles. Used for the Authentication Testing & CORS Config

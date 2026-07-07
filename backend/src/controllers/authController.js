@@ -16,7 +16,7 @@ const SALT_ROUNDS = 10;
 // (still stripped from the response by toPublicUser).
 const USER_PUBLIC_COLUMNS =
   'user_id, first_name, last_name, email, phone_number, role, anonymous_alias, ' +
-  'barangay_id, is_verified, is_active, created_at';
+  'barangay_id, is_verified, is_active, must_change_password, created_at';
 const USER_AUTH_COLUMNS = `${USER_PUBLIC_COLUMNS}, password_hash`;
 
 /**
@@ -33,6 +33,7 @@ const toPublicUser = (row) => ({
   anonymous_alias: row.anonymous_alias,
   is_verified: !!row.is_verified,
   is_active: !!row.is_active,
+  must_change_password: !!row.must_change_password,
 });
 
 /**
@@ -165,4 +166,56 @@ const me = async (req, res, next) => {
   }
 };
 
-module.exports = { register, login, me };
+// POST /api/v1/auth/change-password — requires authenticate middleware
+// Used for:
+//   1. First-login forced password change (must_change_password = TRUE).
+//   2. Voluntary password change from a profile settings page.
+// Body: { current_password, new_password }
+// On success, clears must_change_password and returns a fresh token.
+const changePassword = async (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, errors: errors.array() });
+  }
+
+  const { current_password, new_password } = req.body;
+  try {
+    const [[user]] = await pool.execute(
+      `SELECT ${USER_AUTH_COLUMNS} FROM ${User.TABLE} WHERE ${User.COLUMNS.ID} = ? LIMIT 1`,
+      [req.user.id]
+    );
+    if (!user) return res.status(404).json({ success: false, message: 'User not found.' });
+
+    const match = await bcrypt.compare(current_password, user.password_hash);
+    if (!match) {
+      return res.status(401).json({ success: false, message: 'Current password is incorrect.' });
+    }
+
+    if (new_password.length < 8) {
+      return res.status(400).json({ success: false, message: 'New password must be at least 8 characters.' });
+    }
+    if (current_password === new_password) {
+      return res.status(400).json({ success: false, message: 'New password must differ from the current password.' });
+    }
+
+    const newHash = await bcrypt.hash(new_password, SALT_ROUNDS);
+    await pool.execute(
+      'UPDATE USERS SET password_hash = ?, must_change_password = FALSE WHERE user_id = ?',
+      [newHash, req.user.id]
+    );
+    logger.info(`Password changed: user_id=${req.user.id}`);
+
+    const [[updated]] = await pool.execute(
+      `SELECT ${USER_PUBLIC_COLUMNS} FROM ${User.TABLE} WHERE ${User.COLUMNS.ID} = ?`,
+      [req.user.id]
+    );
+    const token = signToken(updated);
+    return res.json({
+      success: true,
+      message: 'Password changed successfully.',
+      data: { user: toPublicUser(updated), token },
+    });
+  } catch (err) { return next(err); }
+};
+
+module.exports = { register, login, me, changePassword };

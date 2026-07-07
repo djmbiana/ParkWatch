@@ -15,8 +15,27 @@ export function formatDateTime(value) {
 // series, still on the road), motorcycle "ABC 12-3456".
 export const PLATE_RE = /^[A-Z]{3} \d{4}$|^[A-Z]{3} \d{3}$|^[A-Z]{3} \d{2}-\d{4}$/
 
+// Conduction sticker: 2-char district code + space + 4-char alphanumeric body.
+// e.g. "AA 123A", "D1 E777"
+export const CONDUCTION_RE = /^[A-Z][A-Z0-9] [A-Z0-9]{4}$/
+
+// Temporary Motor Vehicle Plate (white "REGISTERED" / dealer-issued).
+// 4-wheel: "AB 1234" (2 letters + 4 digits).
+// Improvised MC (lost/mutilated): "AB 12345" (2 letters + 5 digits).
+export const TEMPORARY_RE    = /^[A-Z]{2} \d{4}$/
+export const TEMPORARY_MC_RE = /^[A-Z]{2} \d{5}$/
+
 export function isValidPlate(value) {
   return PLATE_RE.test((value ?? '').trim().toUpperCase())
+}
+
+export function isValidConductionPlate(value) {
+  return CONDUCTION_RE.test((value ?? '').trim().toUpperCase())
+}
+
+export function isValidTemporaryPlate(value) {
+  const v = (value ?? '').trim().toUpperCase()
+  return TEMPORARY_RE.test(v) || TEMPORARY_MC_RE.test(v)
 }
 
 // Human-readable penalty for the 4-tier structure (migration 022), e.g.

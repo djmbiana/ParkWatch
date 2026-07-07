@@ -40,6 +40,7 @@ router.post  ('/streets',                            ...cp('streets_rules','mana
 router.patch ('/streets/:streetId/deactivate',       ...cp('streets_rules','manage','update'), adminController.deactivateStreet);
 router.get   ('/parking-rules',                      ...cp('streets_rules','manage','read'),   adminController.listRules);
 router.patch ('/parking-rules/:ruleId/toggle',       ...cp('streets_rules','manage','update'), adminController.toggleRule);
+router.patch ('/parking-rules/:ruleId',              ...cp('streets_rules','manage','update'), adminController.updateRule);
 router.post  ('/parking-rules',                      ...cp('streets_rules','manage','create'), adminController.createRule);
 
 // ─── Penalty Tiers ───────────────────────────────────────────────────────────

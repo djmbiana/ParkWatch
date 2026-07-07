@@ -1,45 +1,53 @@
-import { request } from '@playwright/test';
+import { APIRequestContext, request as globalRequest } from '@playwright/test';
 import { API_URL, TEST_STREET_ID, TEST_VIOLATION } from './testData';
+import { apiLogin } from './auth';
 
 /**
- * Direct API helpers for test setup/teardown. These hit the backend at
- * API_URL (not through the Vite proxy) so they work even when only the
- * frontend dev server is managed by Playwright.
+ * Direct API helpers for test setup. Hit the backend at API_URL (not through
+ * the Vite proxy) so they work regardless of frontend server state.
+ *
+ * Callers pass the Playwright `request` fixture as the first argument —
+ * this keeps the request inside the same Playwright worker context and
+ * benefits from shared authentication caching in auth.ts.
  */
 
-// Submit a report directly via the public (anonymous) endpoint. Used to set up
-// state for queue/lifecycle tests. Returns the created report's identity.
-export async function submitReportViaAPI(photoUrl: string): Promise<{
-  report_id: number;
-  access_token: string;
-  anonymous_alias: string;
-}> {
-  const ctx = await request.newContext();
+// Submit a report via the public (anonymous) endpoint. Returns the full
+// submission response body. Callers only need to provide an APIRequestContext;
+// photo_url defaults to a known test URL so setup code stays brief.
+export async function submitReportViaAPI(
+  ctx: APIRequestContext,
+  overrides: { photo_url?: string; street_id?: number; violation_type?: string } = {},
+): Promise<{ report_id: number; access_token: string; anonymous_alias: string }> {
   const res = await ctx.post(`${API_URL}/api/reports`, {
     data: {
-      photo_url: photoUrl,
-      street_id: TEST_STREET_ID,
-      violation_type: TEST_VIOLATION,
+      photo_url:      overrides.photo_url      ?? 'gs://parkwatch-test/placeholder.jpg',
+      street_id:      overrides.street_id      ?? TEST_STREET_ID,
+      violation_type: overrides.violation_type ?? TEST_VIOLATION,
     },
   });
+  if (!res.ok()) {
+    throw new Error(`submitReportViaAPI failed (${res.status()}): ${await res.text()}`);
+  }
   const body = await res.json();
-  await ctx.dispose();
   return body.data;
 }
 
-// Barangay approval of a pending report (verify → approve), for setup.
-export async function approveReportViaAPI(reportId: number, token: string) {
-  const ctx = await request.newContext();
-  await ctx.patch(`${API_URL}/api/reports/${reportId}/verify`, {
+// Approve (verify) a pending report using the barangay official test account.
+// Uses the token cache in auth.ts so it never exceeds the 20-login rate limit.
+export async function approveReportViaAPI(ctx: APIRequestContext, reportId: number) {
+  const { token } = await apiLogin('barangay', ctx);
+  const res = await ctx.patch(`${API_URL}/api/reports/${reportId}/verify`, {
     headers: { Authorization: `Bearer ${token}` },
     data: { action: 'approve' },
   });
-  await ctx.dispose();
+  if (!res.ok()) {
+    throw new Error(`approveReportViaAPI failed for report ${reportId} (${res.status()}): ${await res.text()}`);
+  }
 }
 
-// There is no destructive cleanup endpoint (reports are an audit trail). Test
-// reports created during a run are logged for manual / DB cleanup.
+// Reports are an immutable audit trail — no delete endpoint exists. Log
+// any test-created report_id so it can be manually removed if needed.
 export async function noteReportForCleanup(reportId: number) {
   // eslint-disable-next-line no-console
-  console.log(`[Cleanup] Report ${reportId} created during test — remove via DB if needed.`);
+  console.log(`[Test cleanup] report_id=${reportId} — remove via DB if needed.`);
 }

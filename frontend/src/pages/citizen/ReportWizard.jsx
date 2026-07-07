@@ -7,7 +7,7 @@ import CitizenHeader from "../../components/citizen/CitizenHeader"
 import StepIndicator from "../../components/citizen/StepIndicator"
 import PhotoCapture from "../../components/citizen/PhotoCapture"
 import Dropdown from "../../components/citizen/Dropdown"
-import { isValidPlate, formatPenalty } from "../../utils/format"
+import { isValidPlate, isValidConductionPlate, isValidTemporaryPlate, formatPenalty } from "../../utils/format"
 
 const ALLOWED_TYPES = ["image/jpeg", "image/png", "image/webp"]
 const MAX_BYTES = 10 * 1024 * 1024
@@ -32,9 +32,10 @@ const primaryBtn = (disabled) => ({
 })
 
 const PLATE_TYPES = [
-  { key: "regular",    label: "Regular Plate",      hint: "Standard LTO-issued plate (ABC 1234)" },
-  { key: "conduction", label: "Conduction / Temp",  hint: "Conduction sticker or temporary plate" },
-  { key: "no_plate",   label: "No Plate",            hint: "Vehicle with no visible plate number" },
+  { key: "regular",    label: "Regular Plate",       hint: "Standard LTO plate (ABC 1234)" },
+  { key: "conduction", label: "Conduction Sticker",  hint: "Yellow LTO sticker (e.g. AA 123A)" },
+  { key: "temporary",  label: "Temporary Plate",     hint: "White plate with TEMPORARY PLATE label" },
+  { key: "no_plate",   label: "No Plate",             hint: "Vehicle with no visible plate" },
 ]
 
 const LABELS = { 1: "Capture Photo", 2: "Location & Violation", 3: "Review & Submit" }
@@ -63,7 +64,13 @@ export default function ReportWizard() {
 
   // Plate type
   const [plateType, setPlateType] = useState("regular")
-  const [conductionInput, setConductionInput] = useState("")
+  // Conduction sticker: two separate fields matching the physical sticker layout.
+  // conductionCode = 2-char district code (blue left column), e.g. "AA" or "D1"
+  // conductionBody = 4-char body (black area), e.g. "123A" or "E777"
+  const [conductionCode, setConductionCode] = useState("")
+  const [conductionBody, setConductionBody] = useState("")
+  // Temporary plate: 2 letters + 4 digits (4-wheel) or 2 letters + 5 digits (improvised MC)
+  const [tempPlateInput, setTempPlateInput] = useState("")
 
   // Step 2 - location cascade + violation
   const [streets, setStreets] = useState([])
@@ -123,11 +130,14 @@ export default function ReportWizard() {
   }, [streets, selectedBarangay])
 
   // Can proceed from step 2
+  const conductionPlate = `${conductionCode} ${conductionBody}`.toUpperCase()
   const plateValid = plateType === "regular"
     ? isValidPlate(plate)
     : plateType === "conduction"
-      ? conductionInput.trim().length >= 4
-      : true
+      ? isValidConductionPlate(conductionPlate)
+      : plateType === "temporary"
+        ? isValidTemporaryPlate(tempPlateInput)
+        : true // no_plate
   const canProceedStep2 = plateValid && selectedStreet && selectedViolation
 
   // Whether the reporter has the access token for the duplicate's existing report
@@ -188,7 +198,10 @@ export default function ReportWizard() {
     let resolvedPlate = plate
 
     if (plateType === "conduction") {
-      resolvedPlate = `CS-${conductionInput.trim().toUpperCase()}`
+      resolvedPlate = `${conductionCode.trim().toUpperCase()} ${conductionBody.trim().toUpperCase()}`
+      setPlate(resolvedPlate)
+    } else if (plateType === "temporary") {
+      resolvedPlate = tempPlateInput.trim().toUpperCase().replace(/\s+/g, " ")
       setPlate(resolvedPlate)
     } else if (plateType === "no_plate") {
       // Unique 20-char identifier using Web Crypto (fits VEHICLES.plate_number VARCHAR(20))
@@ -290,12 +303,9 @@ export default function ReportWizard() {
   const removeExtraPhoto = (i) => setExtraPhotos(p => p.filter((_, idx) => idx !== i))
 
   const handleAttachToExisting = async () => {
+    if (dupAttachPhotos.length === 0) return
+    // token is null for witness reporters — backend accepts witness photos without token.
     const token = dupInfo?.report_id ? citizenStore.getToken(dupInfo.report_id) : null
-    if (dupAttachPhotos.length === 0 || !token) {
-      setShowDupModal(false)
-      navigate("/citizen/reports")
-      return
-    }
     setDupAttaching(true)
     try {
       await citizen.attachPhotos(dupInfo.report_id, token, dupAttachPhotos.map(p => p.url))
@@ -480,32 +490,123 @@ export default function ReportWizard() {
             )}
 
             {plateType === "conduction" && (
-              <div style={{ background: "var(--c-primary-lt)", border: "1px solid var(--c-primary)", borderRadius: 14, padding: 16, marginBottom: 20 }}>
-                <p style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--c-primary)" }}>Conduction Sticker Number</p>
-                <div style={{ display: "flex", alignItems: "center", marginTop: 8, gap: 0 }}>
-                  <span className="mono" style={{ padding: "0 12px", height: 52, display: "flex", alignItems: "center", background: "#dbeafe", border: "1px solid var(--c-primary)", borderRight: "none", borderRadius: "10px 0 0 10px", fontSize: 18, fontWeight: 700, color: "var(--c-primary-dk)", flexShrink: 0 }}>CS-</span>
+              <div style={{ marginBottom: 20 }}>
+                <p style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--c-muted)", margin: "0 0 8px" }}>Conduction Sticker Number</p>
+                {/* Sticker-style input: yellow background, blue left column (code) + black body */}
+                <div style={{
+                  background: "#FFC200",
+                  borderRadius: 10,
+                  padding: "10px 12px",
+                  display: "flex",
+                  alignItems: "stretch",
+                  gap: 8,
+                  border: "2px solid #B8860B",
+                }}>
+                  {/* Blue left column — district code (2 chars) */}
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center" }}>
+                    <input
+                      value={conductionCode}
+                      onChange={(e) => {
+                        const val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 2)
+                        setConductionCode(val)
+                      }}
+                      placeholder="AA"
+                      maxLength={2}
+                      className="mono"
+                      style={{
+                        width: 52,
+                        height: 64,
+                        background: "#1A56DB",
+                        border: "none",
+                        borderRadius: 6,
+                        textAlign: "center",
+                        fontSize: 26,
+                        fontWeight: 900,
+                        color: "#fff",
+                        letterSpacing: "0.06em",
+                        outline: "none",
+                        caretColor: "#fff",
+                      }}
+                    />
+                    <span style={{ fontSize: 9, color: "#7B4F00", fontWeight: 600, marginTop: 3, letterSpacing: "0.04em" }}>CODE</span>
+                  </div>
+                  {/* Black body — 4-char alphanumeric */}
+                  <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}>
+                    <input
+                      value={conductionBody}
+                      onChange={(e) => {
+                        const val = e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 4)
+                        setConductionBody(val)
+                      }}
+                      placeholder="123A"
+                      maxLength={4}
+                      className="mono"
+                      style={{
+                        width: "100%",
+                        height: 64,
+                        background: "rgba(0,0,0,0.06)",
+                        border: "none",
+                        borderRadius: 6,
+                        textAlign: "center",
+                        fontSize: 34,
+                        fontWeight: 900,
+                        color: "#1A1A1A",
+                        letterSpacing: "0.1em",
+                        outline: "none",
+                      }}
+                    />
+                    <span style={{ fontSize: 9, color: "#7B4F00", fontWeight: 600, marginTop: 3, letterSpacing: "0.04em" }}>STICKER NUMBER</span>
+                  </div>
+                </div>
+                <p style={{ fontSize: 12, color: "var(--c-muted)", marginTop: 6 }}>
+                  Enter the 2-char district code (blue column) and 4-char number from the yellow sticker.
+                  {conductionCode && conductionBody && (
+                    <span style={{ fontWeight: 600, color: "var(--c-text)", marginLeft: 4 }}>
+                      Preview: {conductionCode.toUpperCase()} {conductionBody.toUpperCase()}
+                    </span>
+                  )}
+                </p>
+              </div>
+            )}
+
+            {plateType === "temporary" && (
+              <div style={{ marginBottom: 20 }}>
+                <p style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--c-muted)", margin: "0 0 8px" }}>Temporary / Registered Plate Number</p>
+                {/* White plate mock — matches the physical "REGISTERED" dealer plate */}
+                <div style={{
+                  background: "#fff",
+                  border: "3px solid #111",
+                  borderRadius: 8,
+                  padding: "6px 10px 10px",
+                  marginBottom: 8,
+                }}>
+                  <p style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.15em", textAlign: "center", color: "#222", margin: "0 0 4px" }}>REGISTERED</p>
                   <input
-                    value={conductionInput}
-                    onChange={(e) => setConductionInput(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))}
-                    placeholder="XXXXXXXX"
+                    value={tempPlateInput}
+                    onChange={(e) => {
+                      const raw = e.target.value.toUpperCase().replace(/[^A-Z0-9 ]/g, "")
+                      setTempPlateInput(raw)
+                    }}
+                    placeholder="AB 1234"
+                    maxLength={8}
                     className="mono"
-                    maxLength={12}
                     style={{
-                      flex: 1,
-                      height: 52,
-                      border: "1px solid var(--c-primary)",
-                      borderRadius: "0 10px 10px 0",
-                      padding: "0 14px",
-                      fontSize: 22,
-                      fontWeight: 700,
-                      letterSpacing: "0.04em",
-                      color: "var(--c-primary-dk)",
-                      background: "var(--c-surface)",
+                      width: "100%",
+                      border: "none",
                       outline: "none",
+                      background: "transparent",
+                      textAlign: "center",
+                      fontSize: 32,
+                      fontWeight: 900,
+                      letterSpacing: "0.08em",
+                      color: "#111",
                     }}
                   />
                 </div>
-                <p style={{ fontSize: 12, color: "var(--c-muted)", marginTop: 8 }}>Enter the alphanumeric code from the conduction sticker (4-12 characters).</p>
+                <p style={{ fontSize: 12, color: "var(--c-muted)" }}>
+                  4-wheel: <strong>AB 1234</strong> (2 letters + 4 digits) &nbsp;|&nbsp;
+                  Improvised MC: <strong>AB 12345</strong> (2 letters + 5 digits)
+                </p>
               </div>
             )}
 
@@ -604,10 +705,10 @@ export default function ReportWizard() {
                   padding: "3px 10px",
                   borderRadius: 999,
                   marginBottom: 8,
-                  background: plateType === "conduction" ? "var(--c-primary-lt)" : "#FEF9C3",
-                  color: plateType === "conduction" ? "var(--c-primary)" : "#92400E",
+                  background: plateType === "conduction" ? "#FFF3CD" : plateType === "temporary" ? "#DCFCE7" : "#FEF9C3",
+                  color: plateType === "conduction" ? "#92400E" : plateType === "temporary" ? "#166534" : "#92400E",
                 }}>
-                  {plateType === "conduction" ? "Conduction / Temp Plate" : "No Plate Number"}
+                  {plateType === "conduction" ? "Conduction Sticker" : plateType === "temporary" ? "Temporary Plate" : "No Plate Number"}
                 </span>
               )}
               {plateType !== "no_plate" ? (
@@ -744,57 +845,63 @@ export default function ReportWizard() {
               </p>
             </div>
 
-            {hasTokenForDup && (
-              <div style={{ background: "var(--c-primary-lt)", borderRadius: 12, padding: 14, marginBottom: 16 }}>
-                <p style={{ fontSize: 13, fontWeight: 600, color: "var(--c-primary)", margin: "0 0 6px" }}>Add more photos to the existing report?</p>
-                <p style={{ fontSize: 12, color: "var(--c-primary)", margin: "0 0 12px" }}>You submitted this report. Extra photos will help the officers on the ground.</p>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                  {dupAttachPhotos.map((p, i) => (
-                    <div key={i} style={{ position: "relative", width: 70, height: 70 }}>
-                      <img src={p.preview} alt="" style={{ width: 70, height: 70, objectFit: "cover", borderRadius: 10, border: "1px solid var(--c-border)" }} />
-                      <button
-                        onClick={() => setDupAttachPhotos(prev => prev.filter((_, idx) => idx !== i))}
-                        style={{ position: "absolute", top: -5, right: -5, width: 20, height: 20, borderRadius: "50%", background: "var(--c-danger)", color: "#fff", border: "none", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
-                      >×</button>
-                    </div>
-                  ))}
-                  {dupAttachPhotos.length < 5 && (
+            {/* Anyone can add supporting photos — original reporter gets full access,
+                witnesses can add up to 3 corroborating photos without a token. */}
+            <div style={{ background: "var(--c-primary-lt)", borderRadius: 12, padding: 14, marginBottom: 16 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, color: "var(--c-primary)", margin: "0 0 4px" }}>
+                {hasTokenForDup ? "Add more photos to your report" : "Add supporting photos"}
+              </p>
+              <p style={{ fontSize: 12, color: "var(--c-muted)", margin: "0 0 12px" }}>
+                {hasTokenForDup
+                  ? "Extra photos will help the officers verify this violation."
+                  : "Your photos will be attached as corroborating evidence for this report (up to 3)."}
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {dupAttachPhotos.map((p, i) => (
+                  <div key={i} style={{ position: "relative", width: 70, height: 70 }}>
+                    <img src={p.preview} alt="" style={{ width: 70, height: 70, objectFit: "cover", borderRadius: 10, border: "1px solid var(--c-border)" }} />
                     <button
-                      onClick={() => dupAttachInputRef.current?.click()}
-                      style={{ width: 70, height: 70, borderRadius: 10, border: "1.5px dashed var(--c-primary)", background: "transparent", color: "var(--c-primary)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, fontSize: 11 }}
-                    >
-                      <Plus size={18} /><span>Add</span>
-                    </button>
-                  )}
-                </div>
-                <input
-                  ref={dupAttachInputRef}
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  capture="environment"
-                  style={{ display: "none" }}
-                  onChange={async e => {
-                    const file = e.target.files?.[0]
-                    if (!file || !ALLOWED_TYPES.includes(file.type) || file.size > MAX_BYTES) return
-                    try {
-                      const { photo_url } = await citizen.uploadPhoto(file)
-                      setDupAttachPhotos(prev => [...prev, { url: photo_url, preview: URL.createObjectURL(file) }])
-                    } catch {}
-                    e.target.value = ""
-                  }}
-                />
-                {dupAttachPhotos.length > 0 && (
+                      onClick={() => setDupAttachPhotos(prev => prev.filter((_, idx) => idx !== i))}
+                      style={{ position: "absolute", top: -5, right: -5, width: 20, height: 20, borderRadius: "50%", background: "var(--c-danger)", color: "#fff", border: "none", fontSize: 13, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}
+                    >×</button>
+                  </div>
+                ))}
+                {dupAttachPhotos.length < (hasTokenForDup ? 5 : 3) && (
                   <button
-                    onClick={handleAttachToExisting}
-                    disabled={dupAttaching}
-                    style={{ marginTop: 12, width: "100%", height: 44, background: "var(--c-primary)", color: "#fff", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: dupAttaching ? "wait" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+                    onClick={() => dupAttachInputRef.current?.click()}
+                    style={{ width: 70, height: 70, borderRadius: 10, border: "1.5px dashed var(--c-primary)", background: "transparent", color: "var(--c-primary)", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3, fontSize: 11 }}
                   >
-                    {dupAttaching && <LoadingSpinner size={16} color="#fff" />}
-                    {dupAttaching ? "Attaching..." : "Attach Photos to Report"}
+                    <Plus size={18} /><span>Add</span>
                   </button>
                 )}
               </div>
-            )}
+              <input
+                ref={dupAttachInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                capture="environment"
+                style={{ display: "none" }}
+                onChange={async e => {
+                  const file = e.target.files?.[0]
+                  if (!file || !ALLOWED_TYPES.includes(file.type) || file.size > MAX_BYTES) return
+                  try {
+                    const { photo_url } = await citizen.uploadPhoto(file)
+                    setDupAttachPhotos(prev => [...prev, { url: photo_url, preview: URL.createObjectURL(file) }])
+                  } catch {}
+                  e.target.value = ""
+                }}
+              />
+              {dupAttachPhotos.length > 0 && (
+                <button
+                  onClick={handleAttachToExisting}
+                  disabled={dupAttaching}
+                  style={{ marginTop: 12, width: "100%", height: 44, background: "var(--c-primary)", color: "#fff", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: dupAttaching ? "wait" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+                >
+                  {dupAttaching && <LoadingSpinner size={16} color="#fff" />}
+                  {dupAttaching ? "Attaching..." : "Attach Photos to Report"}
+                </button>
+              )}
+            </div>
 
             <button
               type="button"

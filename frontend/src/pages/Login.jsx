@@ -21,7 +21,11 @@ function Login() {
       localStorage.setItem("parkwatch_token", data.token)
       localStorage.setItem("parkwatch_user", JSON.stringify(data.user))
       await reload()
-      navigate(getRoleHome(data.user.role), { replace: true })
+      if (data.user.must_change_password) {
+        navigate("/change-password", { replace: true })
+      } else {
+        navigate(getRoleHome(data.user.role), { replace: true })
+      }
     } catch (err) {
       setError(err.message || "Invalid email or password.")
     } finally {

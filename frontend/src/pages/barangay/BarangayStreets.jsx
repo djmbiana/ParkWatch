@@ -256,10 +256,19 @@ export default function BarangayStreets() {
               {isExpanded && (
                 <div style={{ borderTop: '1px solid var(--color-border)', padding: '12px 18px 16px' }}>
 
+                  {/* Column headers */}
+                  {(activeRules.length > 0 || inactiveRules.length > 0) && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr 1.4fr auto auto', gap: 12, padding: '0 0 6px', borderBottom: '2px solid var(--color-border)', marginBottom: 4 }}>
+                      {['Violation Type', 'Description', 'Ordinance', 'Status', 'Action'].map(h => (
+                        <span key={h} style={{ fontSize: 10, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{h}</span>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Active rules */}
                   {activeRules.length > 0 && (
                     <div style={{ marginBottom: inactiveRules.length > 0 ? 12 : 0 }}>
-                      <p style={{ margin: '0 0 8px', fontSize: 11, fontWeight: 700, color: 'var(--color-text-secondary)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                      <p style={{ margin: '8px 0 4px', fontSize: 11, fontWeight: 700, color: 'var(--color-text-secondary)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
                         Active Rules
                       </p>
                       {activeRules.map(rule => (
@@ -361,24 +370,41 @@ function RuleRow({ rule, onToggle }) {
 
   return (
     <div style={{
-      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      padding: '6px 0', borderBottom: '1px solid var(--color-border)',
+      display: 'grid',
+      gridTemplateColumns: '1fr 1.6fr 1.4fr auto auto',
+      alignItems: 'start',
       gap: 12,
+      padding: '10px 0',
+      borderBottom: '1px solid var(--color-border)',
     }}>
-      <span style={{ fontSize: 13, color: 'var(--color-text-primary)', flex: 1 }}>
+      <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--color-text-primary)', paddingTop: 2 }}>
         {rule.violation_type}
       </span>
+      <span style={{ fontSize: 12, color: 'var(--color-text-secondary)', lineHeight: 1.5, paddingTop: 2 }}>
+        {rule.description || <span style={{ color: 'var(--color-text-muted)', fontStyle: 'italic' }}>No description</span>}
+      </span>
+      <span style={{ fontSize: 11, color: 'var(--color-text-muted)', lineHeight: 1.5, paddingTop: 3 }}>
+        {rule.ordinance || '—'}
+      </span>
+      {/* Status indicator */}
+      <span style={{
+        fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 999, whiteSpace: 'nowrap',
+        background: rule.is_active ? '#d1fae5' : '#fee2e2',
+        color: rule.is_active ? '#065f46' : '#991b1b',
+      }}>
+        {rule.is_active ? 'Active' : 'Inactive'}
+      </span>
+      {/* Action button */}
       <button
         onClick={toggle}
         disabled={busy}
         style={{
           padding: '4px 12px', fontSize: 12, fontWeight: 600,
-          background: rule.is_active ? '#f3f4f6' : 'var(--accent)',
-          color: rule.is_active ? '#374151' : '#fff',
-          border: '1px solid var(--color-border)',
-          borderRadius: 6, cursor: 'pointer',
-          opacity: busy ? 0.6 : 1,
-          flexShrink: 0,
+          background: 'none', border: 'none',
+          color: rule.is_active ? '#DC2626' : '#059669',
+          cursor: 'pointer',
+          opacity: busy ? 0.5 : 1,
+          whiteSpace: 'nowrap',
         }}
       >
         {rule.is_active ? 'Disable' : 'Enable'}

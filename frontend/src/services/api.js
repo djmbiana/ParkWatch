@@ -62,6 +62,8 @@ export const auth = {
   me: () => request('/api/v1/auth/me'),
   updateProfile: (fields) =>
     request('/api/users/me', { method: 'PATCH', body: JSON.stringify(fields) }),
+  changePassword: (current_password, new_password) =>
+    request('/api/v1/auth/change-password', { method: 'POST', body: JSON.stringify({ current_password, new_password }) }),
 }
 
 // Reports - barangay
@@ -119,6 +121,7 @@ export const adminStreets = {
   create:         (body) =>   request('/api/admin/streets',                          { method: 'POST',  body: JSON.stringify(body) }),
   deactivate:     (id) =>     request(`/api/admin/streets/${id}/deactivate`,         { method: 'PATCH' }),
   toggleRule:     (id) =>     request(`/api/admin/parking-rules/${id}/toggle`,       { method: 'PATCH' }),
+  updateRule:     (id, body) => request(`/api/admin/parking-rules/${id}`,             { method: 'PATCH', body: JSON.stringify(body) }),
   createRule:     (body) =>   request('/api/admin/parking-rules',                    { method: 'POST',  body: JSON.stringify(body) }),
 }
 
@@ -238,14 +241,16 @@ export const citizen = {
   getReport:     (id, token) =>
     publicRequest(`/api/reports/${id}${token ? `?token=${encodeURIComponent(token)}` : ''}`),
 
-  // Attach extra evidence photos to an existing report (duplicate add-context flow).
-  // Requires the per-report access_token returned at submission.
-  attachPhotos: (reportId, token, additional_photos) =>
-    publicRequest(`/api/reports/${reportId}/additional-photos?token=${encodeURIComponent(token)}`, {
+  // Attach extra evidence photos to an existing report.
+  // token: the per-report access_token (original reporter) or null (witness/corroborate mode).
+  attachPhotos: (reportId, token, additional_photos) => {
+    const qs = token ? `?token=${encodeURIComponent(token)}` : ''
+    return publicRequest(`/api/reports/${reportId}/additional-photos${qs}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ additional_photos }),
-    }),
+    })
+  },
 
   // FCM token registration (anonymous) - best-effort, see CitizenLayout
   registerToken: (fcm_token) => jsonPost('/api/notifications/register-token', { fcm_token }),

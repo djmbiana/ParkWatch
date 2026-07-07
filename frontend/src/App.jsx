@@ -9,6 +9,7 @@ import Landing from "./pages/Landing"
 import Login from "./pages/Login"
 import Register from "./pages/Register"
 import PrivacyNotice from "./pages/PrivacyNotice"
+import ChangePassword from "./pages/ChangePassword"
 import RoleRoute from "./components/RoleRoute"
 
 // Citizen app (public, anonymous - no auth per research paper p.118)
@@ -64,9 +65,10 @@ export default function App() {
       <ApiSetup />
       <Routes>
         {/* Public */}
-        <Route path="/login"    element={<Login />} />
-        <Route path="/register" element={<Register />} />
-        <Route path="/privacy"  element={<PrivacyNotice />} />
+        <Route path="/login"           element={<Login />} />
+        <Route path="/register"        element={<Register />} />
+        <Route path="/privacy"         element={<PrivacyNotice />} />
+        <Route path="/change-password" element={<ChangePassword />} />
 
         {/* Citizen - public, no auth guard (anonymous reporting) */}
         <Route path="/citizen" element={<CitizenLayout />}>
