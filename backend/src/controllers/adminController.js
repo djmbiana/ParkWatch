@@ -61,7 +61,7 @@ const createUser = async (req, res, next) => {
       message: 'Account provisioned.',
       // temporary_password is what the admin portal reads; temp_password is the
       // spec's name — both returned so the secret is shown exactly once.
-      data: { user_id: result.insertId, email, role, temporary_password: tempPw, temp_password: tempPw },
+      data: { user_id: result.insertId, email, role, temporary_password: tempPw, temp_password: tempPw, must_change_password: true },
     });
   } catch (err) { return next(err); }
 };
@@ -87,6 +87,9 @@ const updateUser = async (req, res, next) => {
 const deactivateUser = async (req, res, next) => {
   const { userId } = req.params;
   try {
+    const [[target]] = await pool.execute('SELECT role FROM USERS WHERE user_id = ? LIMIT 1', [userId]);
+    if (!target) return fail(res, 404, 'User not found.');
+    if (target.role === 'admin') return fail(res, 422, 'Cannot deactivate an admin account.');
     await pool.execute('UPDATE USERS SET is_active=FALSE WHERE user_id=?', [userId]);
     await logAudit(req, 'users_mgt', 'status_update', 'update', 'USERS', userId,
       { is_active: true }, { is_active: false });

@@ -44,6 +44,13 @@ test.describe('FR-13: Officer queue structure', () => {
   });
 
   test('TC-OFF-02: Queue shows a verified report with Acknowledge button', async ({ page }) => {
+    await page.route(`**/api/reports/${MOCK_VERIFIED_REPORT.report_id}**`, async (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: MOCK_VERIFIED_REPORT }),
+      });
+    });
     await loginAs('officer', page, '/mtpb/officer/queue');
     await page.getByText(MOCK_VERIFIED_REPORT.plate).first().click();
     await expect(page.getByRole('button', { name: /Acknowledge/i })).toBeVisible({ timeout: 6000 });
@@ -98,7 +105,7 @@ test.describe('FR-13: Action pipeline (real backend)', () => {
     });
     const res = await request.patch(`${API_URL}/api/reports/${report_id}/resolve`, {
       headers: { Authorization: `Bearer ${token}` },
-      data: { outcome: 'Ticket issued' },
+      data: { resolution_outcome: 'Vehicle No Longer Present' },
     });
     expect(res.ok()).toBe(true);
     const body = await res.json();
@@ -116,7 +123,8 @@ test.describe('FR-13: Action pipeline (real backend)', () => {
     const res = await request.patch(`${API_URL}/api/reports/${report_id}/acknowledge`, {
       headers: { Authorization: `Bearer ${token}` },
     });
-    expect(res.status()).toBe(409); // requireStatus guard → conflict
+    // requireStatus middleware (statusGuard.js) rejects invalid transitions with 422.
+    expect(res.status()).toBe(422);
   });
 });
 
@@ -171,29 +179,28 @@ test.describe('FR-17: Plate search from officer portal', () => {
   });
 
   test('TC-OFF-14: Plate search returns results from all barangays', async ({ page }) => {
-    await page.route('**/api/reports**', async (route, request_) => {
-      if (request_.url().includes('plate=') || request_.method() === 'POST') {
-        route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            success: true,
-            data: [
+    await page.route('**/api/vehicles/**', async (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          data: {
+            vehicle: { plate_number: 'ABC 1234', total_violations: 1, is_repeat_offender: false },
+            history: [
               { ...MOCK_VERIFIED_REPORT, barangay_name: 'Barangay 726', report_id: 11 },
               { ...MOCK_VERIFIED_REPORT, barangay_name: 'Barangay 762', report_id: 12 },
             ],
-          }),
-        });
-        return;
-      }
-      route.continue();
+          },
+        }),
+      });
     });
     await loginAs('officer', page, '/mtpb/officer/plate-search');
     const input = page.locator('input[placeholder*="plate" i]').first();
     await input.fill('ABC 1234');
     await page.keyboard.press('Enter');
-    await expect(page.getByText('Barangay 726')).toBeVisible({ timeout: 6000 });
-    await expect(page.getByText('Barangay 762')).toBeVisible({ timeout: 6000 });
+    await expect(page.getByText('Barangay 726').first()).toBeVisible({ timeout: 6000 });
+    await expect(page.getByText('Barangay 762').first()).toBeVisible({ timeout: 6000 });
   });
 });
 
@@ -203,22 +210,24 @@ test.describe('FR-17: Plate search from officer portal', () => {
 
 test.describe('Post-ISPROJ1: Report detail additional photos', () => {
   test('TC-OFF-15: Report detail shows Additional Photos section', async ({ page }) => {
+    const reportWithPhotos = { ...MOCK_VERIFIED_REPORT, additional_photos: ['https://example.com/a.jpg'] };
     await page.route('**/api/reports/queue/mtpb', async (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: [{
-            ...MOCK_VERIFIED_REPORT,
-            additional_photos: ['https://example.com/a.jpg'],
-          }],
-        }),
+        body: JSON.stringify({ success: true, data: [reportWithPhotos] }),
+      });
+    });
+    await page.route(`**/api/reports/${MOCK_VERIFIED_REPORT.report_id}**`, async (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: reportWithPhotos }),
       });
     });
     await loginAs('officer', page, '/mtpb/officer/queue');
     await page.getByText(MOCK_VERIFIED_REPORT.plate).first().click();
-    await expect(page.getByText(/additional photos|extra photos/i)).toBeVisible({ timeout: 6000 });
+    await expect(page.getByText(/additional photos|extra photos/i)).toBeVisible({ timeout: 8000 });
   });
 });
 
@@ -234,6 +243,7 @@ test.describe('Post-ISPROJ1: Mobile viewport', () => {
     await expect(
       page.getByRole('button', { name: /menu|open.*nav|hamburger/i })
         .or(page.locator('[aria-label*="menu" i]'))
+        .first()
     ).toBeVisible({ timeout: 6000 });
   });
 });

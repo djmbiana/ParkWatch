@@ -11,24 +11,44 @@ import { apiLogin } from './auth';
  * benefits from shared authentication caching in auth.ts.
  */
 
-// Submit a report via the public (anonymous) endpoint. Returns the full
-// submission response body. Callers only need to provide an APIRequestContext;
-// photo_url defaults to a known test URL so setup code stays brief.
+// A placeholder object path in the configured bucket (GCS_BUCKET_NAME rejects
+// foreign buckets). /api/reports/confirm never runs OCR against it — the
+// plate comes from manual_plate_input below — so the object doesn't need to
+// exist or contain a legible plate.
+const FIXTURE_PHOTO_URL = 'gs://parkwatch-evidence-capstone/placeholder.jpg';
+
+// The backend's duplicate check keys on (plate, street_id) within a 24h
+// rolling window (DUPLICATE_DETECTION_WINDOW_MINUTES) and isn't scoped to
+// this test run, so a fixed plate would collide across repeated suite runs.
+// A counter-suffixed plate keeps every call unique instead.
+let plateCounter = 0;
+const uniqueTestPlate = () => {
+  plateCounter += 1;
+  const suffix = (Date.now() % 10000 + plateCounter).toString().padStart(4, '0').slice(-4);
+  return `TST ${suffix}`;
+};
+
+// Submit a report via the public (anonymous) endpoint, using /api/reports/confirm
+// so a manually-supplied plate is stored directly instead of relying on real
+// Cloud Vision OCR (slow, and would need a fixture photo with a legible plate).
+// Returns the full submission response body. Callers only need to provide an
+// APIRequestContext; photo_url/street_id/violation_type all have test defaults.
 export async function submitReportViaAPI(
   ctx: APIRequestContext,
-  overrides: { photo_url?: string; street_id?: number; violation_type?: string } = {},
+  overrides: { photo_url?: string; street_id?: number; violation_type?: string; plate?: string } = {},
 ): Promise<{ report_id: number; access_token: string; anonymous_alias: string }> {
-  const res = await ctx.post(`${API_URL}/api/reports`, {
+  const res = await ctx.post(`${API_URL}/api/reports/confirm`, {
     data: {
-      photo_url:      overrides.photo_url      ?? 'gs://parkwatch-test/placeholder.jpg',
-      street_id:      overrides.street_id      ?? TEST_STREET_ID,
-      violation_type: overrides.violation_type ?? TEST_VIOLATION,
+      photo_url:          overrides.photo_url      ?? FIXTURE_PHOTO_URL,
+      street_id:          overrides.street_id       ?? TEST_STREET_ID,
+      violation_type:     overrides.violation_type  ?? TEST_VIOLATION,
+      manual_plate_input: overrides.plate           ?? uniqueTestPlate(),
     },
   });
-  if (!res.ok()) {
-    throw new Error(`submitReportViaAPI failed (${res.status()}): ${await res.text()}`);
-  }
   const body = await res.json();
+  if (!res.ok() || !body?.data?.report_id) {
+    throw new Error(`submitReportViaAPI failed (${res.status()}): ${JSON.stringify(body)}`);
+  }
   return body.data;
 }
 

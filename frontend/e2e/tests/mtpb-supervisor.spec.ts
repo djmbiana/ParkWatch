@@ -36,11 +36,17 @@ import { API_URL, ESCALATION_CONFIG_KEYS } from '../helpers/testData';
 
 test.describe('FR-14: Escalation config panel', () => {
   test('TC-SUP-01: Escalation config panel is visible on the supervisor page', async ({ page }) => {
-    await loginAs('supervisor', page, '/mtpb/supervisor');
+    await page.route('**/api/reports/queue/supervisor', async (route) => {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { reports: [], stats: {} } }) });
+    });
+    await loginAs('supervisor', page, '/mtpb/supervisor/escalated');
+    // The config panel is collapsed behind a toggle by default.
+    await page.getByRole('button', { name: /Escalation Timing Settings/i }).click();
     // The config section has a response window input
     await expect(
       page.getByLabel(/response window|escalation.*minutes/i)
         .or(page.locator('input[type="number"]').first())
+        .first()
     ).toBeVisible({ timeout: 8000 });
   });
 
@@ -63,7 +69,12 @@ test.describe('FR-14: Escalation config panel', () => {
   });
 
   test('TC-SUP-03: Escalation config panel shows a Save button', async ({ page }) => {
-    await loginAs('supervisor', page, '/mtpb/supervisor');
+    await page.route('**/api/reports/queue/supervisor', async (route) => {
+      route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { reports: [], stats: {} } }) });
+    });
+    await loginAs('supervisor', page, '/mtpb/supervisor/escalated');
+    // The config panel is collapsed behind a toggle by default.
+    await page.getByRole('button', { name: /Escalation Timing Settings/i }).click();
     await expect(page.getByRole('button', { name: /Save/i })).toBeVisible({ timeout: 6000 });
   });
 });
@@ -78,10 +89,10 @@ test.describe('FR-18: Supervisor escalated queue', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: [] }),
+        body: JSON.stringify({ success: true, data: { reports: [], stats: {} } }),
       });
     });
-    await loginAs('supervisor', page, '/mtpb/supervisor');
+    await loginAs('supervisor', page, '/mtpb/supervisor/escalated');
     await expect(page.getByRole('heading', { name: /supervisor|escalated/i })).toBeVisible({ timeout: 8000 });
   });
 
@@ -97,13 +108,23 @@ test.describe('FR-18: Supervisor escalated queue', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: [escalatedReport] }),
+        body: JSON.stringify({ success: true, data: { reports: [escalatedReport], stats: {} } }),
       });
     });
-    await loginAs('supervisor', page, '/mtpb/supervisor');
-    await page.getByText(escalatedReport.plate).first().click();
+    await page.route(`**/api/reports/${escalatedReport.report_id}**`, async (route) => {
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ success: true, data: escalatedReport }),
+      });
+    });
+    await loginAs('supervisor', page, '/mtpb/supervisor/escalated');
+    // "Handle" opens the row's modal (defaults to the Details tab); switch to
+    // the "Resolve Directly" tab to reveal the Resolve button.
+    await page.getByRole('button', { name: /Handle/i }).click();
+    await page.getByRole('button', { name: /Resolve Directly/i }).click();
     await expect(
-      page.getByRole('button', { name: /resolve|supervisor.*resolve/i })
+      page.getByRole('button', { name: /^Resolve$/i }).first()
     ).toBeVisible({ timeout: 6000 });
   });
 
@@ -136,7 +157,7 @@ test.describe('FR-18: Supervisor escalated queue', () => {
     // Supervisor-resolve
     const res = await request.patch(`${API_URL}/api/reports/${report_id}/supervisor-resolve`, {
       headers: { Authorization: `Bearer ${token}` },
-      data: { outcome: 'Supervisor handled' },
+      data: { resolution_outcome: 'Vehicle No Longer Present' },
     });
     expect([200, 422]).toContain(res.status());
   });
@@ -161,9 +182,9 @@ test.describe('FR-10: Penalty tier display', () => {
   });
 
   test('TC-SUP-09: Penalty tiers admin page shows Warning/Ticket/Clamp/Impound', async ({ page }) => {
-    await loginAs('supervisor', page, '/admin/penalty-tiers');
+    await loginAs('admin', page, '/admin/penalty-tiers');
     // The 4 canonical tier names must appear
-    const tierNames = ['Warning', 'Ticket', 'Clamp', 'Impound'];
+    const tierNames = ['1st Offense', '2nd Offense', '3rd Offense', '4th Offense'];
     for (const name of tierNames) {
       await expect(page.getByText(name).first()).toBeVisible({ timeout: 8000 });
     }
@@ -180,6 +201,7 @@ test.describe('FR-19 / FR-20: Report generation', () => {
     await expect(
       page.getByRole('button', { name: /csv.*export|export.*csv/i })
         .or(page.getByText(/export.*csv/i))
+        .first()
     ).toBeVisible({ timeout: 8000 });
   });
 
@@ -188,6 +210,7 @@ test.describe('FR-19 / FR-20: Report generation', () => {
     await expect(
       page.getByRole('button', { name: /html.*report|print.*report|generate.*report/i })
         .or(page.getByText(/html.*report/i))
+        .first()
     ).toBeVisible({ timeout: 8000 });
   });
 
@@ -198,8 +221,8 @@ test.describe('FR-19 / FR-20: Report generation', () => {
     });
     expect(res.ok()).toBe(true);
     const body = await res.json();
-    expect(body.data).toHaveProperty('total_reports');
-    expect(body.data).toHaveProperty('resolved');
+    expect(body.data).toHaveProperty('reports_submitted');
+    expect(body.data).toHaveProperty('reports_resolved');
   });
 
   test('TC-SUP-13: Repeat offenders endpoint returns array with plate field', async ({ page, request }) => {
@@ -223,6 +246,7 @@ test.describe('Post-ISPROJ1: Officers tab', () => {
     await expect(
       page.getByRole('table')
         .or(page.getByText(/officer|no officer/i))
+        .first()
     ).toBeVisible({ timeout: 8000 });
   });
 

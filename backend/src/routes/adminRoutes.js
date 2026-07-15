@@ -12,7 +12,7 @@ const cp = (mod, fn, action) => [authenticate, checkPermission(mod, fn, action)]
 const sys = [authenticate, requireSystemRole];
 
 // ─── Users ────────────────────────────────────────────────────────────────────
-router.get   ('/users',                       ...cp('users_mgt','edit_profile','read'),    adminController.listUsers);
+router.get   ('/users',                       authenticate, authorize(ROLES.ADMIN),        adminController.listUsers);
 router.post  ('/users',                       ...cp('users_mgt','edit_profile','create'),  adminController.createUser);
 router.patch ('/users/:userId',               ...cp('users_mgt','edit_profile','update'),  adminController.updateUser);
 router.patch ('/users/:userId/deactivate',    ...cp('users_mgt','status_update','update'), adminController.deactivateUser);

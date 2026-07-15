@@ -139,6 +139,9 @@ export default function CitizenHome() {
           )}
         </section>
       </div>
+      <p style={{ fontSize: 11, color: 'var(--c-muted)', textAlign: 'center', padding: '8px 16px 16px' }}>
+        Your data is protected under RA 10173 (Data Privacy Act of 2012).
+      </p>
     </div>
   )
 }

@@ -28,7 +28,7 @@ export const PARTNER_BARANGAY_OFFICIALS = [
   { email: 'barangay762@test.com', barangay: 'Barangay 762' },
 ] as const;
 
-export const TEST_STREET_ID = 1;
+export const TEST_STREET_ID = 21;
 export const TEST_VIOLATION = 'Parked on Sidewalk';
 
 // localStorage keys (see frontend/src/services/api.js + utils/auth.js).

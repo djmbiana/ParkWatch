@@ -34,7 +34,7 @@ export const MOCK_REPORT = {
 };
 
 export const MOCK_DUP = {
-  is_duplicate: true,
+  duplicate: true,
   report_id: 1111,
   street_name: 'Arellano Avenue',
   minutes_ago: 15,
@@ -46,6 +46,7 @@ export const MOCK_PENDING_REPORT = {
   status: 'pending',
   anonymous_alias: 'Reporter #0042',
   plate: 'ABC 1234',
+  plate_number: 'ABC 1234',
   plate_type: 'regular',
   violation_type: 'Parked on Sidewalk',
   street_name: 'Arellano Avenue',
@@ -157,16 +158,17 @@ export async function wizardToStep2(page: Page) {
 /** Brings the wizard all the way to Step 3 (Additional Photos / Review visible). */
 export async function wizardToStep3(page: Page) {
   await wizardToStep2(page);
-  // Select barangay (bottom sheet)
-  await page.getByRole('button', { name: /Select barangay/i }).click();
+  // Select barangay (bottom sheet) — use .first() to avoid strict mode when
+  // the disabled street picker also contains "Select barangay" in its placeholder
+  await page.getByRole('button', { name: /Select barangay/i }).first().click();
   await page.getByText('Barangay 726').click();
-  // Select street (bottom sheet)
-  await page.getByRole('button', { name: /Select a street/i }).click();
+  // Select street — use .first() because the violation-type button also says "Select a street first"
+  await page.getByRole('button', { name: /Select a street/i }).first().click();
   await page.getByText('Arellano Avenue').click();
   // Select violation type (bottom sheet)
   await page.getByRole('button', { name: /Select violation type/i }).click();
   await page.getByText('Parked on Sidewalk').click();
-  // Advance
-  await page.getByRole('button', { name: /Next/i }).click();
+  // Advance — step 2's continue button is labeled "Review Report", not "Next"
+  await page.getByRole('button', { name: /Review Report/i }).click();
   await expect(page.getByText('Additional Photos')).toBeVisible({ timeout: 8000 });
 }

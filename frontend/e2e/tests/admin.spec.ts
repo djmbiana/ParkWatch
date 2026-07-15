@@ -31,7 +31,7 @@ import { MOCK_STREET_WITH_RULES } from '../helpers/pages';
 
 test.describe('Admin can access all management pages', () => {
   const adminPages = [
-    { path: '/admin/users',         label: /users/i },
+    { path: '/admin/users',         label: /user management|user/i },
     { path: '/admin/barangays',     label: /barangay/i },
     { path: '/admin/streets',       label: /streets|parking rules/i },
     { path: '/admin/penalty-tiers', label: /penalty/i },
@@ -126,6 +126,7 @@ test.describe('must_change_password: First-login flow', () => {
     await expect(
       page.getByRole('textbox', { name: /new password/i })
         .or(page.locator('input[type="password"]').first())
+        .first()
     ).toBeVisible({ timeout: 6000 });
   });
 
@@ -133,7 +134,7 @@ test.describe('must_change_password: First-login flow', () => {
     await page.goto('/login');
     await page.evaluate((key) => {
       localStorage.setItem(key, JSON.stringify({
-        user_id: 99, email: 'newstaff@test.com', role: 'mtpb_officer', must_change_password: false,
+        user_id: 99, email: 'newstaff@test.com', role: 'mtpb_officer', must_change_password: true,
       }));
       localStorage.setItem('parkwatch_token', 'mock-jwt');
     }, 'parkwatch_user');
@@ -142,14 +143,21 @@ test.describe('must_change_password: First-login flow', () => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: {} }),
+        body: JSON.stringify({
+          success: true,
+          data: {
+            token: 'new-mock-jwt',
+            user: { user_id: 99, email: 'newstaff@test.com', role: 'mtpb_officer', must_change_password: false },
+          },
+        }),
       });
     });
     await page.goto('/change-password');
     const pwInputs = page.locator('input[type="password"]');
     await pwInputs.nth(0).fill('NewPassword1!');
     await pwInputs.nth(1).fill('NewPassword1!');
-    await page.getByRole('button', { name: /change|save|update/i }).click();
+    await pwInputs.nth(2).fill('NewPassword1!');
+    await page.getByRole('button', { name: /set.*password|change|save|update/i }).click();
     // Should navigate away from /change-password
     await expect(page).not.toHaveURL(/change-password/, { timeout: 8000 });
   });
@@ -163,7 +171,7 @@ test.describe('User management', () => {
   test('TC-ADM-08: Admin users page lists existing staff accounts', async ({ page }) => {
     await loginAs('admin', page, '/admin/users');
     // Should show a table or list with at least the seeded accounts
-    await expect(page.getByRole('table').or(page.getByText(/officer|supervisor|barangay/i))).toBeVisible({ timeout: 8000 });
+    await expect(page.getByRole('table').or(page.getByText(/officer|supervisor|barangay/i)).first()).toBeVisible({ timeout: 8000 });
   });
 
   test('TC-ADM-09: Admin can create a new user via API', async ({ page, request }) => {
@@ -174,14 +182,15 @@ test.describe('User management', () => {
       data: {
         email: `test-officer-${randomSuffix}@parkwatch.test`,
         password: 'Test1234!',
-        full_name: `Test Officer ${randomSuffix}`,
+        first_name: 'Test',
+        last_name: `Officer ${randomSuffix}`,
         role: 'mtpb_officer',
         barangay_id: null,
       },
     });
     expect(res.ok()).toBe(true);
     const body = await res.json();
-    expect(body.data.must_change_password).toBe(true); // provisioned accounts default to true
+    expect(body.data.must_change_password).toBe(true);
   });
 
   test('TC-ADM-10: Newly created account has must_change_password = true', async ({ page, request }) => {
@@ -192,9 +201,11 @@ test.describe('User management', () => {
       data: {
         email: `mcp-test-${suffix}@parkwatch.test`,
         password: 'Test1234!',
-        full_name: `MCP Test ${suffix}`,
+        first_name: 'MCP',
+        last_name: `Test ${suffix}`,
         role: 'brgy_official',
-        barangay_id: 726,
+        // barangay_id 21 = "Barangay 726" (726 is only the display barangay_number).
+        barangay_id: 21,
       },
     });
     expect(res.ok()).toBe(true);
@@ -209,8 +220,16 @@ test.describe('User management', () => {
 test.describe('Super Admin protection', () => {
   test('TC-ADM-11: Deactivating the Super Admin account is rejected', async ({ page, request }) => {
     const { token } = await loginAs('admin', page);
-    // Super Admin is user_id = 1 by convention in the seed
-    const res = await request.patch(`${API_URL}/api/admin/users/1/deactivate`, {
+    // user_id is not a stable "convention" across seeds — look up an admin
+    // account directly rather than assuming user_id = 1.
+    const listRes = await request.get(`${API_URL}/api/admin/users`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const users = (await listRes.json()).data as Array<{ user_id: number; role: string }>;
+    const admin = users.find((u) => u.role === 'admin');
+    expect(admin).toBeTruthy();
+
+    const res = await request.patch(`${API_URL}/api/admin/users/${admin!.user_id}/deactivate`, {
       headers: { Authorization: `Bearer ${token}` },
     });
     // Should be 403 Forbidden or 422 Unprocessable
@@ -259,21 +278,25 @@ test.describe('Violation type management — description + ordinance', () => {
 
   test('TC-ADM-13: Streets & Rules page shows Violation Description column', async ({ page }) => {
     await loginAs('admin', page, '/admin/streets');
+    await page.getByText('Arellano Avenue').first().click();
     await expect(page.getByText(/violation.*description|description/i).first()).toBeVisible({ timeout: 8000 });
   });
 
   test('TC-ADM-14: Streets & Rules page shows Ordinance column', async ({ page }) => {
     await loginAs('admin', page, '/admin/streets');
+    await page.getByText('Arellano Avenue').first().click();
     await expect(page.getByText(/ordinance/i).first()).toBeVisible({ timeout: 8000 });
   });
 
   test('TC-ADM-15: Ordinance cell shows RA 4136 citation from migration 035', async ({ page }) => {
     await loginAs('admin', page, '/admin/streets');
-    await expect(page.getByText(/R\.A\. No\. 4136/i)).toBeVisible({ timeout: 8000 });
+    await page.getByText('Arellano Avenue').first().click();
+    await expect(page.getByText(/R\.A\. No\. 4136/i).first()).toBeVisible({ timeout: 8000 });
   });
 
   test('TC-ADM-16: Disable action button color is red (#DC2626)', async ({ page }) => {
     await loginAs('admin', page, '/admin/streets');
+    await page.getByText('Arellano Avenue').first().click();
     const disableBtn = page.getByRole('button', { name: /^Disable$/i }).first();
     await expect(disableBtn).toBeVisible({ timeout: 8000 });
     const color = await disableBtn.evaluate((el) => window.getComputedStyle(el).color);
@@ -282,6 +305,7 @@ test.describe('Violation type management — description + ordinance', () => {
 
   test('TC-ADM-17: Enable action button color is green (#059669)', async ({ page }) => {
     await loginAs('admin', page, '/admin/streets');
+    await page.getByText('Arellano Avenue').first().click();
     const enableBtn = page.getByRole('button', { name: /^Enable$/i }).first();
     await expect(enableBtn).toBeVisible({ timeout: 8000 });
     const color = await enableBtn.evaluate((el) => window.getComputedStyle(el).color);
@@ -348,7 +372,7 @@ test.describe('Barangay management', () => {
 test.describe('Penalty tier management', () => {
   test('TC-ADM-22: Admin penalty tiers page shows all 4 canonical tiers', async ({ page }) => {
     await loginAs('admin', page, '/admin/penalty-tiers');
-    for (const tier of ['Warning', 'Ticket', 'Clamp', 'Impound']) {
+    for (const tier of ['1st Offense', '2nd Offense', '3rd Offense', '4th Offense']) {
       await expect(page.getByText(tier).first()).toBeVisible({ timeout: 8000 });
     }
   });

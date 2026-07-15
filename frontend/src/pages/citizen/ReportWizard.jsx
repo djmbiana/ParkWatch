@@ -406,6 +406,9 @@ export default function ReportWizard() {
               {processing && <LoadingSpinner size={18} color="#fff" />}
               {processing ? "Analyzing photo..." : "Next"}
             </button>
+            <p style={{ fontSize: 11, color: 'var(--c-muted)', textAlign: 'center', margin: '10px 0 0', lineHeight: 1.5 }}>
+              Your data is protected under RA 10173 (Data Privacy Act of 2012).
+            </p>
 
             {processError && (
               <div style={{ marginTop: 12, background: "var(--c-danger-lt)", borderLeft: "3px solid var(--c-danger)", borderRadius: 8, padding: 12 }}>

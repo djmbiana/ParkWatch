@@ -206,7 +206,7 @@ export default function PortalLayout({ portalClass, logo, roleLabel, navItems, c
               <Menu size={22} />
             </button>
           )}
-          <span style={{
+          <span role="heading" aria-level="1" style={{
             flex: 1,
             fontSize: isMobile ? 16 : 20,
             fontWeight: 600,
