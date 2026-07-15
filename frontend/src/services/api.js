@@ -144,6 +144,7 @@ export const adminGroups = {
   updatePermissions:  (id, perms)     => request(`/api/admin/groups/${id}/permissions`,       { method: 'PUT',    body: JSON.stringify({ permissions: perms }) }),
   assignUserGroup:    (userId, gid)   => request(`/api/admin/users/${userId}/group`,          { method: 'PATCH',  body: JSON.stringify({ group_id: gid }) }),
   assignSupervisor:   (userId, supId) => request(`/api/admin/users/${userId}/supervisor`,     { method: 'PATCH',  body: JSON.stringify({ supervisor_id: supId }) }),
+  assignRole:         (userId, role)  => request(`/api/admin/users/${userId}/role`,           { method: 'PATCH',  body: JSON.stringify({ role }) }),
 }
 
 // RBAC - permission definitions (Super Admin only)

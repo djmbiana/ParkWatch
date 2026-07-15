@@ -27,6 +27,7 @@ router.get   ('/system-config/escalation',    authenticate, authorize(ROLES.MTPB
 router.patch ('/system-config/escalation',    authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), adminController.updateEscalationConfig);
 
 // User RBAC assignment (Super Admin only)
+router.patch ('/users/:userId/role',          ...sys, adminController.updateUserRole);
 router.patch ('/users/:userId/group',         ...sys, ugController.assignUserGroup);
 router.patch ('/users/:userId/supervisor',    ...sys, ugController.assignSupervisor);
 

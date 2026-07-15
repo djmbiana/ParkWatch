@@ -19,11 +19,12 @@ const listUsers = async (req, res, next) => {
   try {
     const [rows] = await pool.execute(
       `SELECT u.user_id, u.first_name, u.last_name, u.email, u.role,
-              u.barangay_id, u.is_verified, u.is_active, u.created_at,
-              b.barangay_name,
+              u.barangay_id, u.supervisor_id, u.group_id, u.is_verified, u.is_active, u.created_at,
+              b.barangay_name, g.name AS group_name,
               u.anonymous_alias AS employee_id
          FROM USERS u
          LEFT JOIN BARANGAYS b ON b.barangay_id = u.barangay_id
+         LEFT JOIN user_groups g ON g.id = u.group_id
          ORDER BY u.created_at DESC`
     );
     return res.json({ success: true, message: 'Success', data: rows });
@@ -31,7 +32,7 @@ const listUsers = async (req, res, next) => {
 };
 
 const createUser = async (req, res, next) => {
-  const { first_name, last_name, email, role, barangay_id } = req.body;
+  const { first_name, last_name, email, role, barangay_id, group_id } = req.body;
   if (!first_name || !last_name || !email || !role) return fail(res, 400, 'first_name, last_name, email, role are required.');
   // UC-13 Special Requirements (paper p.104): admin cannot assign the citizen role.
   if (!['brgy_official', 'mtpb_officer', 'mtpb_supervisor'].includes(role)) {
@@ -45,14 +46,19 @@ const createUser = async (req, res, next) => {
     const [[exists]] = await pool.execute('SELECT user_id FROM USERS WHERE email = ? LIMIT 1', [email]);
     if (exists) return fail(res, 409, 'Email already registered.');
 
+    if (group_id) {
+      const [[group]] = await pool.execute('SELECT id FROM user_groups WHERE id = ?', [group_id]);
+      if (!group) return fail(res, 422, 'group_id does not reference an existing group.');
+    }
+
     const tempPw = `PW-${Math.random().toString(36).slice(2, 10).toUpperCase()}`;
     const hash = await bcrypt.hash(tempPw, 10);
     const alias = `Admin${Date.now()}`;
 
     const [result] = await pool.execute(
-      `INSERT INTO USERS (first_name, last_name, email, password_hash, role, barangay_id, anonymous_alias, is_verified, is_active, must_change_password)
-       VALUES (?, ?, ?, ?, ?, ?, ?, TRUE, TRUE, TRUE)`,
-      [first_name, last_name, email, hash, role, barangay_id || null, alias]
+      `INSERT INTO USERS (first_name, last_name, email, password_hash, role, barangay_id, group_id, anonymous_alias, is_verified, is_active, must_change_password)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, TRUE, TRUE, TRUE)`,
+      [first_name, last_name, email, hash, role, barangay_id || null, group_id || null, alias]
     );
 
     await logAudit(req, 'users_mgt', 'edit_profile', 'create', 'USERS', result.insertId, null, { email, role });
@@ -81,6 +87,45 @@ const updateUser = async (req, res, next) => {
     await logAudit(req, 'users_mgt', 'edit_profile', 'update', 'USERS', userId,
       before, { first_name, last_name, email, barangay_id });
     return res.json({ success: true, message: 'User updated.' });
+  } catch (err) { return next(err); }
+};
+
+// PATCH /api/admin/users/:userId/role — Super Admin only (see adminRoutes.js).
+// Split out from updateUser() because that endpoint is reachable by any group
+// with users_mgt.edit_profile.update (e.g. "User Manager"); role changes are
+// more sensitive (can grant admin access) so they get their own Super-Admin-
+// gated route, mirroring how /group and /supervisor assignment already work.
+const ASSIGNABLE_ROLES = ['brgy_official', 'mtpb_officer', 'mtpb_supervisor', 'admin'];
+
+const updateUserRole = async (req, res, next) => {
+  const { userId } = req.params;
+  const { role } = req.body;
+  if (!ASSIGNABLE_ROLES.includes(role)) {
+    return fail(res, 422, `role must be one of: ${ASSIGNABLE_ROLES.join(', ')}.`);
+  }
+
+  try {
+    const [[user]] = await pool.execute('SELECT role, barangay_id, supervisor_id FROM USERS WHERE user_id = ?', [userId]);
+    if (!user) return fail(res, 404, 'User not found.');
+
+    if (user.role === 'admin' && role !== 'admin') {
+      const [[{ admin_count }]] = await pool.execute(
+        "SELECT COUNT(*) AS admin_count FROM USERS WHERE role = 'admin' AND is_active = TRUE"
+      );
+      if (admin_count <= 1) return fail(res, 422, 'Cannot change the role of the only remaining admin.');
+    }
+
+    // Fields that only make sense for the role the account is leaving behind.
+    const barangayId = role === 'brgy_official' ? user.barangay_id : null;
+    const supervisorId = role === 'mtpb_officer' ? user.supervisor_id : null;
+
+    await pool.execute(
+      'UPDATE USERS SET role = ?, barangay_id = ?, supervisor_id = ? WHERE user_id = ?',
+      [role, barangayId, supervisorId, userId]
+    );
+    await logAudit(req, 'users_mgt', 'edit_profile', 'update', 'USERS', userId,
+      { role: user.role }, { role });
+    return res.json({ success: true, message: 'Role updated.' });
   } catch (err) { return next(err); }
 };
 
@@ -568,7 +613,7 @@ const createTier = async (req, res, next) => {
 };
 
 module.exports = {
-  listUsers, createUser, updateUser, deactivateUser, reactivateUser, deleteUser, setOfficerSupervisor,
+  listUsers, createUser, updateUser, updateUserRole, deactivateUser, reactivateUser, deleteUser, setOfficerSupervisor,
   listOfficers, getOfficerStats, getEscalationConfig, updateEscalationConfig,
   listBarangays, createBarangay, toggleBarangay, setBarangayLocation,
   listStreets, createStreet, deactivateStreet, listRules, toggleRule, createRule, updateRule,

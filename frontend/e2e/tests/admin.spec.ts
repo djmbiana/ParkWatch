@@ -20,10 +20,23 @@
  *   If such a field is needed it requires a new migration.
  */
 
-import { test, expect } from '@playwright/test';
+import { test, expect, APIRequestContext } from '@playwright/test';
 import { loginAs } from '../helpers/auth';
 import { API_URL } from '../helpers/testData';
 import { MOCK_STREET_WITH_RULES } from '../helpers/pages';
+
+// Tests that provision real accounts (TC-ADM-09, TC-ADM-10) must clean up
+// after themselves — deleteUser requires deactivating first. Without this,
+// every run leaves a permanent junk account behind (accumulated to 31 stale
+// test-officer-*/mcp-test-* rows before this cleanup was added).
+async function deleteTestUser(request: APIRequestContext, token: string, userId: number) {
+  await request.patch(`${API_URL}/api/admin/users/${userId}/deactivate`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  await request.delete(`${API_URL}/api/admin/users/${userId}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // RBAC: Admin can access all pages
@@ -191,6 +204,7 @@ test.describe('User management', () => {
     expect(res.ok()).toBe(true);
     const body = await res.json();
     expect(body.data.must_change_password).toBe(true);
+    await deleteTestUser(request, token, body.data.user_id);
   });
 
   test('TC-ADM-10: Newly created account has must_change_password = true', async ({ page, request }) => {
@@ -209,7 +223,9 @@ test.describe('User management', () => {
       },
     });
     expect(res.ok()).toBe(true);
-    expect((await res.json()).data.must_change_password).toBe(true);
+    const body = await res.json();
+    expect(body.data.must_change_password).toBe(true);
+    await deleteTestUser(request, token, body.data.user_id);
   });
 });
 

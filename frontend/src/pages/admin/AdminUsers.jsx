@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useOutletContext } from 'react-router-dom'
 import { Search, Copy, Check } from 'lucide-react'
-import { adminUsers, adminBarangays } from '../../services/api'
+import { adminUsers, adminBarangays, adminGroups } from '../../services/api'
 import { useToast } from '../../components/ToastContext'
 import { usePermissions } from '../../contexts/PermissionsContext'
 import StatCard from '../../components/StatCard'
@@ -38,18 +38,22 @@ function StatusPill({ user }) {
   return <span style={{ display: 'inline-flex', alignItems: 'center', padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, color: '#059669', background: '#ECFDF5', textTransform: 'uppercase' }}>Active</span>
 }
 
-const BLANK_FORM = { first_name: '', last_name: '', email: '', role: 'brgy_official', barangay_id: '', supervisor_id: '' }
+const BLANK_FORM = { first_name: '', last_name: '', email: '', role: 'brgy_official', barangay_id: '', supervisor_id: '', group_id: '' }
 
 export default function AdminUsers() {
   const { setPageTitle } = useOutletContext()
   const toast = useToast()
   const isMobile = useMediaQuery('(max-width: 767px)')
-  const { hasPermission } = usePermissions()
+  const { hasPermission, group: myGroup } = usePermissions()
   const canCreate  = hasPermission('users_mgt', 'edit_profile', 'create')
   const canEdit    = hasPermission('users_mgt', 'edit_profile', 'update')
   const canStatus  = hasPermission('users_mgt', 'status_update', 'update')
+  // Role and group assignment hit Super-Admin-only routes (PATCH .../role, .../group) —
+  // hide those controls for lower-privileged editors so they don't 403 on save.
+  const isSuperAdmin = !!myGroup?.is_system_role
   const [users, setUsers] = useState([])
   const [barangays, setBarangays] = useState([])
+  const [groups, setGroups] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [roleFilter, setRoleFilter] = useState('all')
@@ -71,11 +75,13 @@ export default function AdminUsers() {
     return Promise.all([
       adminUsers.list().catch(() => []),
       adminBarangays.list().catch(() => []),
-    ]).then(([u, b]) => {
+      isSuperAdmin ? adminGroups.list().catch(() => []) : Promise.resolve([]),
+    ]).then(([u, b, g]) => {
       setUsers(Array.isArray(u) ? u : (u?.users ?? []))
       setBarangays(Array.isArray(b) ? b : (b?.barangays ?? []))
+      setGroups(Array.isArray(g) ? g : (g?.groups ?? []))
     }).finally(() => setLoading(false))
-  }, [])
+  }, [isSuperAdmin])
 
   useEffect(() => { fetchAll() }, [fetchAll])
 
@@ -129,8 +135,16 @@ export default function AdminUsers() {
     setFormLoading(true)
     try {
       await adminUsers.update(showEdit.user_id, form)
+      if (isSuperAdmin && form.role !== showEdit.role) {
+        await adminGroups.assignRole(showEdit.user_id, form.role)
+      }
+      // assignUserGroup requires a non-empty group_id (the backend has no
+      // "unassign" path yet) — only call it when a group was actually picked.
+      if (isSuperAdmin && form.group_id && String(form.group_id) !== String(showEdit.group_id ?? '')) {
+        await adminGroups.assignUserGroup(showEdit.user_id, form.group_id)
+      }
       if (form.role === 'mtpb_officer' && String(form.supervisor_id) !== String(showEdit.supervisor_id ?? '')) {
-        await adminUsers.assignSupervisor(showEdit.user_id, form.supervisor_id || null)
+        await adminGroups.assignSupervisor(showEdit.user_id, form.supervisor_id || null)
       }
       toast('User updated.', 'success')
       setShowEdit(null)
@@ -177,7 +191,7 @@ export default function AdminUsers() {
   }
 
   const openEdit = (u) => {
-    setForm({ first_name: u.first_name ?? '', last_name: u.last_name ?? '', email: u.email ?? '', role: u.role ?? 'brgy_official', barangay_id: u.barangay_id ?? '', supervisor_id: u.supervisor_id ?? '' })
+    setForm({ first_name: u.first_name ?? '', last_name: u.last_name ?? '', email: u.email ?? '', role: u.role ?? 'brgy_official', barangay_id: u.barangay_id ?? '', supervisor_id: u.supervisor_id ?? '', group_id: u.group_id ?? '' })
     setFormErr({})
     setShowEdit(u)
   }
@@ -245,7 +259,12 @@ export default function AdminUsers() {
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--color-bg)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                   <td style={{ padding: '0 12px', fontSize: 13, fontWeight: 500 }}>{u.first_name} {u.last_name}</td>
-                  <td style={{ padding: '0 12px' }}><RoleBadge role={u.role} /></td>
+                  <td style={{ padding: '0 12px' }}>
+                    <RoleBadge role={u.role} />
+                    {u.group_name && (
+                      <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 3 }}>{u.group_name}</div>
+                    )}
+                  </td>
                   <td style={{ padding: '0 12px', fontSize: 13, color: 'var(--color-text-secondary)' }}>{u.email}</td>
                   <td style={{ padding: '0 12px', fontSize: 12, color: 'var(--color-text-secondary)' }}>
                     {u.role === 'brgy_official' ? (u.barangay_name ?? '-')
@@ -313,6 +332,19 @@ export default function AdminUsers() {
                     {formErr.barangay_id && <div style={{ fontSize: 11, color: '#EF4444', marginTop: 3 }}>{formErr.barangay_id}</div>}
                   </div>
                 )}
+                {isSuperAdmin && (
+                  <div style={{ marginBottom: 14 }}>
+                    <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>Permission Group</label>
+                    <select value={form.group_id} onChange={e => setForm(p => ({ ...p, group_id: e.target.value }))}
+                      style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-bg)' }}>
+                      <option value="">- No group (uses role default) -</option>
+                      {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                    </select>
+                    <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>
+                      E.g. a Barangay Official can be assigned the "Barangay Captain" group for expanded permissions.
+                    </div>
+                  </div>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
                   <button onClick={() => setShowProvision(false)} style={{ padding: '8px 20px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'transparent', fontSize: 14, cursor: 'pointer' }}>Cancel</button>
                   <button onClick={handleProvision} disabled={formLoading} style={{ padding: '8px 20px', borderRadius: 6, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -356,6 +388,25 @@ export default function AdminUsers() {
               <FormField label="Last Name" name="last_name" required form={form} setForm={setForm} formErr={formErr} setFormErr={setFormErr} />
             </div>
             <FormField label="Email" name="email" type="email" required form={form} setForm={setForm} formErr={formErr} setFormErr={setFormErr} />
+            {isSuperAdmin ? (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>Role *</label>
+                <select value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-bg)' }}>
+                  <option value="brgy_official">Barangay Official</option>
+                  <option value="mtpb_officer">MTPB Officer</option>
+                  <option value="mtpb_supervisor">MTPB Supervisor</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+            ) : (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>Role</label>
+                <div style={{ padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-bg)', color: 'var(--color-text-muted)' }}>
+                  {ROLE_LABELS[form.role] ?? form.role} <span style={{ fontSize: 11 }}>(only a Super Admin can change roles)</span>
+                </div>
+              </div>
+            )}
             {form.role === 'brgy_official' && (
               <div style={{ marginBottom: 14 }}>
                 <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>Barangay</label>
@@ -378,6 +429,19 @@ export default function AdminUsers() {
                     </option>
                   ))}
                 </select>
+              </div>
+            )}
+            {isSuperAdmin && (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>Permission Group</label>
+                <select value={form.group_id} onChange={e => setForm(p => ({ ...p, group_id: e.target.value }))}
+                  style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-bg)' }}>
+                  <option value="">- No group (uses role default) -</option>
+                  {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+                </select>
+                <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 4 }}>
+                  E.g. a Barangay Official can be assigned the "Barangay Captain" group for expanded permissions.
+                </div>
               </div>
             )}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 8 }}>
@@ -468,7 +532,12 @@ function UserCard({ u, onEdit, onDeactivate, onReactivate }) {
     <div style={{ border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', background: 'var(--color-surface)', padding: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
         <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--color-text-primary)' }}>{u.first_name} {u.last_name}</span>
-        <RoleBadge role={u.role} />
+        <div style={{ textAlign: 'right' }}>
+          <RoleBadge role={u.role} />
+          {u.group_name && (
+            <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginTop: 3 }}>{u.group_name}</div>
+          )}
+        </div>
       </div>
 
       <Row label="Email">{u.email}</Row>
