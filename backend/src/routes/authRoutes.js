@@ -15,6 +15,7 @@ const authLimiter = rateLimit({
   max: parseInt(process.env.AUTH_RATE_LIMIT_MAX, 10) || 20,
   standardHeaders: true,
   legacyHeaders: false,
+  skipSuccessfulRequests: true,
   message: { success: false, message: 'Too many attempts. Please try again later.' },
 });
 
