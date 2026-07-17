@@ -338,11 +338,25 @@ const COUNTABLE_OUTCOMES = ['Verbal Warning', 'Ticket Issued', 'Wheel Clamp', 'V
 // Outcomes that issue physical paperwork and therefore require a ticket/reference
 // number. A Verbal Warning counts as an offense but needs no paperwork.
 const TICKET_REQUIRED_OUTCOMES = ['Ticket Issued', 'Wheel Clamp', 'Vehicle Clamped', 'Vehicle Impounded'];
+const VALID_OUTCOMES = [
+  'Verbal Warning',
+  'Ticket Issued',
+  'Wheel Clamp',
+  'Vehicle Clamped',            // legacy alias for 'Wheel Clamp'
+  'Vehicle Impounded',
+  'Vehicle No Longer Present',  // resolution, not a violation — never counts
+];
 
 const resolve = async (req, res, next) => {
   const reportId = parseInt(req.params.reportId, 10);
   const { resolution_outcome, ticket_reference } = req.body;
   if (!resolution_outcome) return fail(res, 400, 'resolution_outcome is required.');
+  // resolution_outcome is a varchar with no DB constraint, so this allowlist is the
+  // only guard. An unrecognised value would fail the COUNTABLE_OUTCOMES check
+  // silently and drop a confirmed violation from the vehicle's history — fail loudly.
+  if (!VALID_OUTCOMES.includes(resolution_outcome)) {
+    return fail(res, 400, `Invalid resolution_outcome. Must be one of: ${VALID_OUTCOMES.join(', ')}.`);
+  }
   // UC-08 Step 3 (paper p.87): a paperwork outcome requires a ticket reference.
   if (TICKET_REQUIRED_OUTCOMES.includes(resolution_outcome)
       && (!ticket_reference || !String(ticket_reference).trim())) {
@@ -383,10 +397,13 @@ const resolveAndCount = async (reportId, vehicleId, outcome, ticketReference) =>
     );
     if (countable && vehicleId) {
       await connection.execute(
-        `UPDATE VEHICLES
-            SET is_repeat_offender = TRUE,
-                total_violations   = total_violations + 1
-          WHERE vehicle_id = ?`,
+        `UPDATE VEHICLES SET total_violations = total_violations + 1 WHERE vehicle_id = ?`,
+        [vehicleId]
+      );
+      // Repeat offender = 2+ confirmed violations (schema.sql:87). Recomputed as a
+      // separate statement so it reads the incremented value, not the stale one.
+      await connection.execute(
+        `UPDATE VEHICLES SET is_repeat_offender = (total_violations >= 2) WHERE vehicle_id = ?`,
         [vehicleId]
       );
     }
