@@ -69,7 +69,7 @@ export const auth = {
 // Reports - barangay
 export const reports = {
   barangayQueue:  (params = {}) => request(`/api/reports/queue/barangay${qs(params)}`),
-  barangayStats:  () => request('/api/reports/stats/barangay'),
+  barangayStats:  (params = {}) => request(`/api/reports/stats/barangay${qs(params)}`),
   mtpbQueue:      (params = {}) => request(`/api/reports/queue/mtpb${qs(params)}`),
   supervisorQueue:(params = {}) => request(`/api/reports/queue/supervisor${qs(params)}`),
   analyticsSum:   (params = {}) => request(`/api/reports/analytics/summary${qs(params)}`),

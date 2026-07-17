@@ -70,7 +70,33 @@ function mapRow(r) {
     resolved_at: r.resolved_at,
   };
 }
+// ---------------------------------------------------------------------------
+// Shared date-range parsing for the analytics + stats endpoints (revision
+// items 1, 2, 7, 11). Callers pass ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD.
+//
+// The two callers had different pre-existing defaults, so the fallback is
+// explicit per caller: barangayStats was today-only, analyticsSummary was
+// unfiltered (all-time). Preserving both means no dashboard changes meaning
+// until the frontend picker ships and owns the default period (item 11).
+// An invalid or reversed range falls back rather than 500ing.
+// ---------------------------------------------------------------------------
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+const parseRange = (query = {}, { defaultTo = 'today' } = {}) => {
+  const today = new Date().toISOString().slice(0, 10);
+  const { start_date, end_date } = query;
+
+  const valid =
+    ISO_DATE_RE.test(start_date ?? '') &&
+    ISO_DATE_RE.test(end_date ?? '') &&
+    start_date <= end_date;
+
+  if (valid) return { start: start_date, end: end_date, isDefault: false };
+
+  return defaultTo === 'all'
+    ? { start: '1970-01-01', end: today, isDefault: true }
+    : { start: today, end: today, isDefault: true };
+};
 // ---------------------------------------------------------------------------
 // GET /api/reports/queue/barangay
 // Shared cross-barangay database (paper's cross-barangay violation tracking):
@@ -134,17 +160,19 @@ const barangayStats = async (req, res, next) => {
     });
   }
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const { start, end } = parseRange(req.query);
     const [[stats]] = await pool.execute(
       `SELECT
-         SUM(CASE WHEN r.status = 'pending'  AND DATE(r.submitted_at) = ? THEN 1 ELSE 0 END) AS pending,
-         SUM(CASE WHEN r.status = 'verified' AND DATE(r.verified_at) = ?  THEN 1 ELSE 0 END) AS verified,
-         SUM(CASE WHEN r.status = 'rejected' AND DATE(r.verified_at) = ?  THEN 1 ELSE 0 END) AS rejected,
-         COALESCE(AVG(CASE WHEN r.verified_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.verified_at) END), 0) AS avg_review_min
+         SUM(CASE WHEN r.status = 'pending'  AND DATE(r.submitted_at) BETWEEN ? AND ? THEN 1 ELSE 0 END) AS pending,
+         SUM(CASE WHEN r.status = 'verified' AND DATE(r.verified_at)  BETWEEN ? AND ? THEN 1 ELSE 0 END) AS verified,
+         SUM(CASE WHEN r.status = 'rejected' AND DATE(r.verified_at)  BETWEEN ? AND ? THEN 1 ELSE 0 END) AS rejected,
+         COALESCE(AVG(CASE WHEN r.verified_at IS NOT NULL
+                            AND DATE(r.verified_at) BETWEEN ? AND ?
+                           THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.verified_at) END), 0) AS avg_review_min
        FROM VIOLATION_REPORTS r
        LEFT JOIN STREETS s ON s.street_id = r.street_id
        WHERE COALESCE(r.barangay_id, s.barangay_id) = ?`,
-      [today, today, today, barangayId]
+      [start, end, start, end, start, end, start, end, barangayId]
     );
 
     return res.json({ success: true, message: 'Success', data: {
@@ -152,6 +180,9 @@ const barangayStats = async (req, res, next) => {
       verified: Number(stats.verified ?? 0),
       rejected: Number(stats.rejected ?? 0),
       avg_review_min: Math.round(Number(stats.avg_review_min ?? 0)),
+      // Echo the effective range so the dashboard can title the card/chart
+      // ("Pending — 1 Jul to 17 Jul") instead of showing an undated number.
+      range: { start_date: start, end_date: end },
     }});
   } catch (err) { return next(err); }
 };
@@ -440,13 +471,11 @@ const assign = async (req, res, next) => {
 // ---------------------------------------------------------------------------
 const analyticsSummary = async (req, res, next) => {
   try {
-    const { start_date, end_date } = req.query;
+    const { start, end } = parseRange(req.query, { defaultTo: 'all' });
     const today = new Date().toISOString().slice(0, 10);
 
-    const dateFilter = start_date && end_date
-      ? `AND DATE(r.submitted_at) BETWEEN ? AND ?`
-      : '';
-    const params = start_date && end_date ? [start_date, end_date] : [];
+    const dateFilter = `AND DATE(r.submitted_at) BETWEEN ? AND ?`;
+    const params = [today, start, end];   // `today` for resolved_today, then the range
 
     const [[s]] = await pool.execute(
       `SELECT
@@ -457,7 +486,7 @@ const analyticsSummary = async (req, res, next) => {
          SUM(CASE WHEN r.status = 'rejected' THEN 1 ELSE 0 END) AS total_rejected,
          SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) AS pending_now,
          SUM(CASE WHEN r.status = 'escalated' THEN 1 ELSE 0 END) AS escalated_now,
-         SUM(CASE WHEN r.status = 'resolved' AND DATE(r.resolved_at) = '${today}' THEN 1 ELSE 0 END) AS resolved_today,
+         SUM(CASE WHEN r.status = 'resolved' AND DATE(r.resolved_at) = ? THEN 1 ELSE 0 END) AS resolved_today,
          COALESCE(AVG(CASE WHEN r.verified_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.verified_at) END), 0) AS avg_verify_min,
          COALESCE(AVG(CASE WHEN r.acknowledged_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.verified_at, r.acknowledged_at) END), 0) AS avg_mtpb_response_min,
          COALESCE(AVG(CASE WHEN r.resolved_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.resolved_at) END), 0) AS avg_resolution_min,
@@ -479,11 +508,16 @@ const analyticsSummary = async (req, res, next) => {
          COUNT(*) AS total_repeat_offenders,
          SUM(CASE WHEN v.vehicle_id IN (
                SELECT vr.vehicle_id FROM VIOLATION_REPORTS vr
+                WHERE DATE(vr.submitted_at) BETWEEN ? AND ?
+             ) THEN 1 ELSE 0 END) AS repeat_in_range,
+         SUM(CASE WHEN v.vehicle_id IN (
+               SELECT vr.vehicle_id FROM VIOLATION_REPORTS vr
                 WHERE YEAR(vr.submitted_at) = YEAR(CURDATE())
                   AND MONTH(vr.submitted_at) = MONTH(CURDATE())
              ) THEN 1 ELSE 0 END) AS repeat_this_month
        FROM VEHICLES v
-       WHERE v.total_violations >= 2`
+       WHERE v.total_violations >= 2`,
+      [start, end]
     );
 
     // Total fines = sum of the tier fine ONLY for reports that actually issued a
@@ -495,7 +529,9 @@ const analyticsSummary = async (req, res, next) => {
          FROM VIOLATION_REPORTS r
          JOIN PENALTY_TIERS t ON t.tier_id = r.penalty_tier_id
         WHERE r.status = 'resolved'
-          AND r.resolution_outcome IN ('Ticket Issued','Wheel Clamp','Vehicle Clamped','Vehicle Impounded')`
+          AND r.resolution_outcome IN ('Ticket Issued','Wheel Clamp','Vehicle Clamped','Vehicle Impounded')
+          AND DATE(r.resolved_at) BETWEEN ? AND ?`,
+      [start, end]
     );
 
     return res.json({ success: true, message: 'Success', data: {
@@ -506,12 +542,14 @@ const analyticsSummary = async (req, res, next) => {
       escalated_now: Number(s.escalated_now ?? 0),
       resolved_today: Number(s.resolved_today ?? 0),
       resolution_rate: rate,
+      repeat_in_range: Number(roStats.repeat_in_range ?? 0),
       avg_verify_min: Math.round(Number(s.avg_verify_min ?? 0)),
       avg_mtpb_response_min: Math.round(Number(s.avg_mtpb_response_min ?? 0)),
       avg_escalation_min: Math.round(Number(s.avg_escalation_min ?? 0)),
-      total_repeat_offenders: Number(roStats.total_repeat_offenders ?? 0),
+      total_repeat_offenders: Number(roStats.total_repeat_offenders ?? 0),  // all-time by definition
       repeat_this_month: Number(roStats.repeat_this_month ?? 0),
       total_fines_issued: Number(fineStats.total_fines ?? 0),
+      range: { start_date: start, end_date: end },
       // FIX 7 — paper/audit field names (additive).
       total_submitted: total,
       total_verified: Number(s.total_verified ?? 0),
