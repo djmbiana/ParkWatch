@@ -10,6 +10,7 @@ const { pool } = require('../config/db');
 const logger = require('../config/logger');
 const notificationService = require('../services/notificationService');
 const { sendPaginated } = require('../utils/response');
+const { logAudit } = require('./userGroupsController');
 
 const fail = (res, code, msg) => res.status(code).json({ success: false, message: msg });
 
@@ -239,6 +240,8 @@ const verify = async (req, res, next) => {
         connection.release();
       }
       await notificationService.send(null, reportId, 'verified');
+      await logAudit(req, 'reports', 'manage', 'update', 'VIOLATION_REPORTS', reportId,
+        { status: 'pending' }, { status: 'verified', verified_plate_applied: verifiedPlate != null });
       return res.json({
         success: true,
         message: 'Report approved.',
@@ -251,6 +254,8 @@ const verify = async (req, res, next) => {
       [rejection_reason.trim(), req.user.id, reportId]
     );
     await notificationService.send(null, reportId, 'rejected', { rejection_reason: rejection_reason.trim() });
+    await logAudit(req, 'reports', 'manage', 'update', 'VIOLATION_REPORTS', reportId,
+      { status: 'pending' }, { status: 'rejected', rejection_reason: rejection_reason.trim() });
     return res.json({ success: true, message: 'Report rejected.', data: { report_id: reportId, action } });
   } catch (err) { return next(err); }
 };

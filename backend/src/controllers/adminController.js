@@ -345,7 +345,119 @@ const createBarangay = async (req, res, next) => {
       'INSERT INTO BARANGAYS (barangay_name, barangay_number, is_participating) VALUES (?, ?, TRUE)',
       [name, number]
     );
+    await logAudit(req, 'brgy_mgt', 'manage', 'create', 'BARANGAYS', result.insertId,
+      null, { barangay_name: name, barangay_number: number });
     return res.status(201).json({ success: true, message: 'Barangay added.', data: { barangay_id: result.insertId } });
+  } catch (err) { return next(err); }
+};
+
+// PATCH /api/admin/barangays/:barangayId — rename or renumber a barangay.
+// barangay_name stays UNIQUE (enforced at the DB level, mapped to 409 below).
+const updateBarangay = async (req, res, next) => {
+  const { barangayId } = req.params;
+  const { restrict_to_barangay, own_barangay_id } = req.permScope;
+  if (restrict_to_barangay && Number(barangayId) !== own_barangay_id) {
+    return fail(res, 403, 'You can only manage your own barangay.');
+  }
+  const name = req.body.barangay_name !== undefined ? req.body.barangay_name.trim() : undefined;
+  const number = req.body.barangay_number !== undefined ? (req.body.barangay_number.trim() || null) : undefined;
+  if (name === '') return fail(res, 422, 'barangay_name cannot be empty.');
+  if (name === undefined && number === undefined) return fail(res, 400, 'Provide barangay_name and/or barangay_number to update.');
+  try {
+    const [[before]] = await pool.execute('SELECT barangay_name, barangay_number FROM BARANGAYS WHERE barangay_id = ?', [barangayId]);
+    if (!before) return fail(res, 404, 'Barangay not found.');
+
+    const fields = [];
+    const params = [];
+    if (name !== undefined) { fields.push('barangay_name = ?'); params.push(name); }
+    if (number !== undefined) { fields.push('barangay_number = ?'); params.push(number); }
+    params.push(barangayId);
+    await pool.execute(`UPDATE BARANGAYS SET ${fields.join(', ')} WHERE barangay_id = ?`, params);
+
+    await logAudit(req, 'brgy_mgt', 'manage', 'update', 'BARANGAYS', barangayId,
+      before, { barangay_name: name ?? before.barangay_name, barangay_number: number !== undefined ? number : before.barangay_number });
+    return res.json({ success: true, message: 'Barangay updated.' });
+  } catch (err) {
+    if (err.code === 'ER_DUP_ENTRY') return fail(res, 409, 'A barangay with that name already exists.');
+    return next(err);
+  }
+};
+
+// POST /api/admin/barangays/sync — imports the full official barangay list for
+// a district from the PSGC (Philippine Standard Geographic Code) barangay-api
+// (https://github.com/bendlikeabamboo/barangay-api), instead of admins typing
+// each barangay's name/number by hand (error-prone — see UAT feedback).
+//
+// Existing rows (matched by barangay_name, which is already UNIQUE) are left
+// completely untouched — their is_participating flag, map pin, and any FKs
+// (STREETS/USERS pointing at their barangay_id) are never modified. Every
+// barangay NOT already in the table is inserted as is_participating = FALSE,
+// so the pilot's partner barangays stay "participating" and everything else
+// PSGC knows about in the district shows up as a real, selectable
+// "non-participating" row instead of simply not existing in the system.
+const BARANGAY_API_BASE = process.env.BARANGAY_API_BASE_URL || 'https://barangay-api.hawitsu.xyz';
+const PSGC_REGION = 'National Capital Region (NCR)';
+const PSGC_PROVINCE_OR_HUC = 'City of Manila';
+
+const syncBarangaysFromPsgc = async (req, res, next) => {
+  if (req.permScope.restrict_to_barangay) {
+    return fail(res, 403, 'Barangay Captains cannot sync the barangay list.');
+  }
+  const district = (req.body.district || 'Malate').trim();
+  try {
+    const listUrl = `${BARANGAY_API_BASE}/${encodeURIComponent(PSGC_REGION)}/${encodeURIComponent(PSGC_PROVINCE_OR_HUC)}/${encodeURIComponent(district)}/barangays`;
+    const listRes = await fetch(listUrl);
+    if (!listRes.ok) {
+      return fail(res, 502, `Barangay reference API returned ${listRes.status} for district "${district}".`);
+    }
+    const names = await listRes.json();
+    if (!Array.isArray(names) || names.length === 0) {
+      return fail(res, 422, `No barangays found for district "${district}" — check the spelling against PSGC.`);
+    }
+
+    const [existingRows] = await pool.execute('SELECT barangay_name FROM BARANGAYS');
+    const existing = new Set(existingRows.map((r) => r.barangay_name));
+    const toInsert = names.filter((n) => !existing.has(n));
+
+    // Resolve each new barangay's psgc_id (the drill-down list endpoint only
+    // returns bare names) — one lookup per barangay, run concurrently since
+    // this is an occasional admin-triggered action, not a hot request path.
+    const resolved = await Promise.all(
+      toInsert.map(async (name) => {
+        try {
+          const r = await fetch(`${BARANGAY_API_BASE}/name/${encodeURIComponent(name)}`);
+          if (!r.ok) return { name, psgc_id: null };
+          const [record] = await r.json();
+          return { name, psgc_id: record?.psgc_id ?? null };
+        } catch {
+          return { name, psgc_id: null };
+        }
+      })
+    );
+
+    let inserted = 0;
+    for (const { name, psgc_id } of resolved) {
+      const numberMatch = name.match(/\d+/);
+      const barangay_number = numberMatch ? numberMatch[0] : null;
+      try {
+        await pool.execute(
+          'INSERT INTO BARANGAYS (barangay_name, barangay_number, psgc_id, is_participating) VALUES (?, ?, ?, FALSE)',
+          [name, barangay_number, psgc_id]
+        );
+        inserted++;
+      } catch (err) {
+        if (err.code !== 'ER_DUP_ENTRY') throw err; // race with a concurrent sync — safe to skip
+      }
+    }
+
+    await logAudit(req, 'brgy_mgt', 'manage', 'create', 'BARANGAYS', district,
+      null, { district, imported: inserted, already_present: names.length - toInsert.length });
+
+    return res.status(201).json({
+      success: true,
+      message: `Synced ${district}: ${inserted} barangay(s) imported, ${names.length - toInsert.length} already present.`,
+      data: { district, total_in_district: names.length, imported: inserted, already_present: names.length - toInsert.length },
+    });
   } catch (err) { return next(err); }
 };
 
@@ -356,10 +468,13 @@ const toggleBarangay = async (req, res, next) => {
     return fail(res, 403, 'You can only manage your own barangay.');
   }
   try {
+    const [[before]] = await pool.execute('SELECT is_participating FROM BARANGAYS WHERE barangay_id = ?', [barangayId]);
     await pool.execute(
       'UPDATE BARANGAYS SET is_participating = NOT is_participating WHERE barangay_id = ?',
       [barangayId]
     );
+    await logAudit(req, 'brgy_mgt', 'manage', 'update', 'BARANGAYS', barangayId,
+      { is_participating: !!before?.is_participating }, { is_participating: !before?.is_participating });
     return res.json({ success: true, message: 'Barangay status toggled.' });
   } catch (err) { return next(err); }
 };
@@ -379,11 +494,14 @@ const setBarangayLocation = async (req, res, next) => {
     return fail(res, 422, 'Valid latitude and longitude are required.');
   }
   try {
+    const [[before]] = await pool.execute('SELECT latitude, longitude FROM BARANGAYS WHERE barangay_id = ?', [barangayId]);
     const [result] = await pool.execute(
       'UPDATE BARANGAYS SET latitude = ?, longitude = ? WHERE barangay_id = ?',
       [lat, lng, barangayId]
     );
     if (result.affectedRows === 0) return fail(res, 404, 'Barangay not found.');
+    await logAudit(req, 'brgy_mgt', 'manage', 'update', 'BARANGAYS', barangayId,
+      before ?? null, { latitude: lat, longitude: lng });
     return res.json({ success: true, message: 'Barangay location updated.', data: { latitude: lat, longitude: lng } });
   } catch (err) { return next(err); }
 };
@@ -435,6 +553,8 @@ const createStreet = async (req, res, next) => {
       'INSERT INTO STREETS (street_name, barangay_id) VALUES (?, ?)',
       [street_name.trim(), barangay_id]
     );
+    await logAudit(req, 'streets_rules', 'manage', 'create', 'STREETS', result.insertId,
+      null, { street_name: street_name.trim(), barangay_id });
     return res.status(201).json({ success: true, message: 'Street created.', data: { street_id: result.insertId } });
   } catch (err) {
     if (err.code === 'ER_DUP_ENTRY') return fail(res, 409, 'This street already exists in this barangay.');
@@ -454,6 +574,8 @@ const deactivateStreet = async (req, res, next) => {
       }
     }
     await pool.execute('UPDATE STREETS SET is_active = FALSE WHERE street_id = ?', [streetId]);
+    await logAudit(req, 'streets_rules', 'manage', 'update', 'STREETS', streetId,
+      { is_active: true }, { is_active: false });
     return res.json({ success: true, message: 'Street deactivated.' });
   } catch (err) { return next(err); }
 };
@@ -493,7 +615,10 @@ const toggleRule = async (req, res, next) => {
         return fail(res, 403, 'You can only manage rules for streets in your own barangay.');
       }
     }
+    const [[before]] = await pool.execute('SELECT is_active FROM PARKING_RULES WHERE rule_id = ?', [ruleId]);
     await pool.execute('UPDATE PARKING_RULES SET is_active = NOT is_active WHERE rule_id = ?', [ruleId]);
+    await logAudit(req, 'streets_rules', 'manage', 'update', 'PARKING_RULES', ruleId,
+      { is_active: !!before?.is_active }, { is_active: !before?.is_active });
     return res.json({ success: true, message: 'Rule toggled.' });
   } catch (err) { return next(err); }
 };
@@ -513,6 +638,8 @@ const createRule = async (req, res, next) => {
       'INSERT INTO PARKING_RULES (street_id, violation_type, description, ordinance) VALUES (?, ?, ?, ?)',
       [street_id, violation_type.trim(), description?.trim() ?? null, ordinance?.trim() ?? null]
     );
+    await logAudit(req, 'streets_rules', 'manage', 'create', 'PARKING_RULES', result.insertId,
+      null, { street_id, violation_type: violation_type.trim(), description, ordinance });
     return res.status(201).json({ success: true, message: 'Rule created.', data: { rule_id: result.insertId } });
   } catch (err) { return next(err); }
 };
@@ -536,12 +663,15 @@ const updateRule = async (req, res, next) => {
         return fail(res, 403, 'You can only manage rules for streets in your own barangay.');
       }
     }
+    const [[before]] = await pool.execute('SELECT description, ordinance FROM PARKING_RULES WHERE rule_id = ?', [ruleId]);
     const fields = [];
     const params = [];
     if (description !== undefined) { fields.push('description = ?'); params.push(description?.trim() ?? null); }
     if (ordinance  !== undefined) { fields.push('ordinance = ?');   params.push(ordinance?.trim()  ?? null); }
     params.push(ruleId);
     await pool.execute(`UPDATE PARKING_RULES SET ${fields.join(', ')} WHERE rule_id = ?`, params);
+    await logAudit(req, 'streets_rules', 'manage', 'update', 'PARKING_RULES', ruleId,
+      before ?? null, { description, ordinance });
     return res.json({ success: true, message: 'Rule updated.' });
   } catch (err) { return next(err); }
 };
@@ -589,10 +719,13 @@ const updateTier = async (req, res, next) => {
     const clash = await findOverlappingTier(min_violations, max_violations ?? null, Number(tierId));
     if (clash) return fail(res, 422, overlapMessage(clash));
 
+    const [[before]] = await pool.execute('SELECT * FROM PENALTY_TIERS WHERE tier_id = ?', [tierId]);
     await pool.execute(
       `UPDATE PENALTY_TIERS SET tier_name=?, min_violations=?, max_violations=?, fine_amount=?, requires_clamping=? WHERE tier_id=?`,
       [tier_name, min_violations, max_violations ?? null, fine_amount, requires_clamping ? 1 : 0, tierId]
     );
+    await logAudit(req, 'penalty', 'manage', 'update', 'PENALTY_TIERS', tierId,
+      before ?? null, { tier_name, min_violations, max_violations, fine_amount, requires_clamping });
     return res.json({ success: true, message: 'Tier updated.' });
   } catch (err) { return next(err); }
 };
@@ -608,6 +741,8 @@ const createTier = async (req, res, next) => {
       `INSERT INTO PENALTY_TIERS (tier_name, min_violations, max_violations, fine_amount, requires_clamping) VALUES (?,?,?,?,?)`,
       [tier_name, min_violations, max_violations ?? null, fine_amount, requires_clamping ? 1 : 0]
     );
+    await logAudit(req, 'penalty', 'manage', 'create', 'PENALTY_TIERS', result.insertId,
+      null, { tier_name, min_violations, max_violations, fine_amount, requires_clamping });
     return res.status(201).json({ success: true, message: 'Tier created.', data: { tier_id: result.insertId } });
   } catch (err) { return next(err); }
 };
@@ -615,7 +750,7 @@ const createTier = async (req, res, next) => {
 module.exports = {
   listUsers, createUser, updateUser, updateUserRole, deactivateUser, reactivateUser, deleteUser, setOfficerSupervisor,
   listOfficers, getOfficerStats, getEscalationConfig, updateEscalationConfig,
-  listBarangays, createBarangay, toggleBarangay, setBarangayLocation,
+  listBarangays, createBarangay, updateBarangay, syncBarangaysFromPsgc, toggleBarangay, setBarangayLocation,
   listStreets, createStreet, deactivateStreet, listRules, toggleRule, createRule, updateRule,
   listTiers, updateTier, createTier,
 };

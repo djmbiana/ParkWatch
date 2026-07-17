@@ -112,6 +112,8 @@ export const adminConfig = {
 export const adminBarangays = {
   list:   (params = {}) => request(`/api/admin/barangays${qs(params)}`),
   create: (body) =>        request('/api/admin/barangays', { method: 'POST', body: JSON.stringify(body) }),
+  update: (id, body) =>    request(`/api/admin/barangays/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  sync:   (district = 'Malate') => request('/api/admin/barangays/sync', { method: 'POST', body: JSON.stringify({ district }) }),
   toggle: (id) =>          request(`/api/admin/barangays/${id}/toggle`, { method: 'PATCH' }),
   setLocation: (id, latitude, longitude) =>
     request(`/api/admin/barangays/${id}/location`, { method: 'PATCH', body: JSON.stringify({ latitude, longitude }) }),
@@ -161,7 +163,13 @@ export const adminAudit = {
 export const myPermissions = () => request('/api/permissions/mine')
 
 function qs(params) {
-  const s = new URLSearchParams(params).toString()
+  // URLSearchParams stringifies undefined/null as the literal text "undefined"/
+  // "null" rather than omitting the key, so callers passing `foo: bar || undefined`
+  // for an optional filter would otherwise always send foo=undefined.
+  const cleaned = Object.fromEntries(
+    Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '')
+  )
+  const s = new URLSearchParams(cleaned).toString()
   return s ? `?${s}` : ''
 }
 

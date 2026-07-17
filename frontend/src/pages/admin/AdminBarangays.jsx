@@ -1,5 +1,6 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { useOutletContext } from 'react-router-dom'
+import { Search } from 'lucide-react'
 import { adminBarangays } from '../../services/api'
 import { useToast } from '../../components/ToastContext'
 import { usePermissions } from '../../contexts/PermissionsContext'
@@ -24,6 +25,15 @@ export default function AdminBarangays() {
   const [newBrgy, setNewBrgy] = useState({ barangay_name: '', barangay_number: '' })
   const [addLoading, setAddLoading] = useState(false)
   const [addErr, setAddErr] = useState('')
+  const [syncLoading, setSyncLoading] = useState(false)
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [sortBy, setSortBy] = useState(null)
+  const [sortDir, setSortDir] = useState('desc')
+  const [editTarget, setEditTarget] = useState(null)
+  const [editForm, setEditForm] = useState({ barangay_name: '', barangay_number: '' })
+  const [editLoading, setEditLoading] = useState(false)
+  const [editErr, setEditErr] = useState('')
 
   useEffect(() => { setPageTitle('Barangay Management') }, [setPageTitle])
 
@@ -56,6 +66,21 @@ export default function AdminBarangays() {
     finally { setDisableLoading(false) }
   }
 
+  const handleSync = async () => {
+    setSyncLoading(true)
+    try {
+      const res = await adminBarangays.sync('Malate')
+      toast(
+        res.imported > 0
+          ? `Synced from PSGC: ${res.imported} new barangay(s) added, ${res.already_present} already on file.`
+          : `Already up to date — all ${res.already_present} Malate barangays are on file.`,
+        'success'
+      )
+      fetchAll()
+    } catch (e) { toast(e.message, 'error') }
+    finally { setSyncLoading(false) }
+  }
+
   const handleAdd = async () => {
     const name = newBrgy.barangay_name.trim()
     if (!name) { setAddErr('Barangay name is required.'); return }
@@ -70,9 +95,49 @@ export default function AdminBarangays() {
     finally { setAddLoading(false) }
   }
 
+  const openEdit = (b) => {
+    setEditForm({ barangay_name: b.barangay_name, barangay_number: b.barangay_number ?? '' })
+    setEditErr('')
+    setEditTarget(b)
+  }
+
+  const handleEditSave = async () => {
+    const name = editForm.barangay_name.trim()
+    if (!name) { setEditErr('Barangay name is required.'); return }
+    setEditLoading(true); setEditErr('')
+    try {
+      await adminBarangays.update(editTarget.barangay_id, { barangay_name: name, barangay_number: editForm.barangay_number.trim() })
+      toast(`${name} updated.`, 'success')
+      setEditTarget(null)
+      fetchAll()
+    } catch (e) { setEditErr(e.message || 'Could not update barangay.') }
+    finally { setEditLoading(false) }
+  }
+
   const total = barangays.length
   const active = barangays.filter(b => b.is_active).length
   const inactive = total - active
+
+  const filtered = useMemo(() => {
+    let rows = barangays
+    if (statusFilter === 'active') rows = rows.filter(b => b.is_active)
+    else if (statusFilter === 'inactive') rows = rows.filter(b => !b.is_active)
+    const q = search.trim().toLowerCase()
+    if (q) {
+      rows = rows.filter(b =>
+        b.barangay_name?.toLowerCase().includes(q) ||
+        b.barangay_number?.toLowerCase().includes(q) ||
+        b.assigned_official?.toLowerCase().includes(q)
+      )
+    }
+    if (sortBy) {
+      rows = [...rows].sort((a, b) => {
+        const diff = (a[sortBy] ?? 0) - (b[sortBy] ?? 0)
+        return sortDir === 'asc' ? diff : -diff
+      })
+    }
+    return rows
+  }, [barangays, search, statusFilter, sortBy, sortDir])
 
   return (
     <div>
@@ -81,10 +146,16 @@ export default function AdminBarangays() {
           Toggle pilot enrollment · streets only visible to citizens when barangay is active
         </p>
         {canCreate && (
-          <button onClick={() => { setNewBrgy({ barangay_name: '', barangay_number: '' }); setAddErr(''); setShowAdd(true) }}
-            style={{ padding: '7px 16px', borderRadius: 6, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-            + Add Barangay
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={handleSync} disabled={syncLoading}
+              style={{ padding: '7px 16px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-primary)', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 8, opacity: syncLoading ? 0.7 : 1 }}>
+              {syncLoading && <LoadingSpinner size={13} />} Sync from PSGC
+            </button>
+            <button onClick={() => { setNewBrgy({ barangay_name: '', barangay_number: '' }); setAddErr(''); setShowAdd(true) }}
+              style={{ padding: '7px 16px', borderRadius: 6, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 13, fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+              + Add Barangay
+            </button>
+          </div>
         )}
       </div>
 
@@ -95,6 +166,35 @@ export default function AdminBarangays() {
       </div>
 
       <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px', borderBottom: '1px solid var(--color-border)', flexWrap: 'wrap' }}>
+          <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
+            <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-muted)' }} />
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name, number, or official..."
+              style={{ width: '100%', padding: '7px 10px 7px 30px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 12, background: 'var(--color-bg)', color: 'var(--color-text-primary)' }} />
+          </div>
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}
+            style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 12, background: 'var(--color-surface)' }}>
+            <option value="all">All Statuses</option>
+            <option value="active">Participating</option>
+            <option value="inactive">Non-Participating</option>
+          </select>
+          <select value={sortBy ? `${sortBy}:${sortDir}` : ''} onChange={e => {
+              const v = e.target.value
+              if (!v) { setSortBy(null); return }
+              const [key, dir] = v.split(':')
+              setSortBy(key); setSortDir(dir)
+            }}
+            style={{ padding: '7px 10px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 12, background: 'var(--color-surface)' }}>
+            <option value="">Sort By...</option>
+            <option value="streets_enrolled:desc">Streets Enrolled (High to Low)</option>
+            <option value="streets_enrolled:asc">Streets Enrolled (Low to High)</option>
+            <option value="reports_this_month:desc">Reports This Month (High to Low)</option>
+            <option value="reports_this_month:asc">Reports This Month (Low to High)</option>
+          </select>
+          <span style={{ fontSize: 12, color: 'var(--color-text-muted)', whiteSpace: 'nowrap' }}>
+            {filtered.length.toLocaleString()} of {total.toLocaleString()}
+          </span>
+        </div>
         {loading ? (
           <div style={{ padding: 48, textAlign: 'center' }}><LoadingSpinner size={28} /></div>
         ) : (
@@ -107,9 +207,11 @@ export default function AdminBarangays() {
               </tr>
             </thead>
             <tbody>
-              {barangays.length === 0 ? (
+              {total === 0 ? (
                 <tr><td colSpan={8} style={{ padding: '48px 12px', textAlign: 'center', fontSize: 13, color: 'var(--color-text-muted)' }}>No barangays found</td></tr>
-              ) : barangays.map(b => (
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan={8} style={{ padding: '48px 12px', textAlign: 'center', fontSize: 13, color: 'var(--color-text-muted)' }}>No barangays match your search/filter</td></tr>
+              ) : filtered.map(b => (
                 <tr key={b.barangay_id} style={{ borderBottom: '1px solid var(--color-border)', height: 48 }}
                   onMouseEnter={e => e.currentTarget.style.background = 'var(--color-bg)'}
                   onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
@@ -137,17 +239,25 @@ export default function AdminBarangays() {
                     }
                   </td>
                   <td style={{ padding: '0 12px' }}>
-                    {canUpdate && (b.is_active ? (
-                      <button onClick={() => setDisableTarget(b)}
-                        style={{ padding: '4px 14px', borderRadius: 6, background: '#EF4444', color: '#fff', border: 'none', fontSize: 12, fontWeight: 500, cursor: 'pointer', height: 28 }}>
-                        Disable
-                      </button>
-                    ) : (
-                      <button onClick={() => handleEnable(b)} disabled={toggleLoading[b.barangay_id]}
-                        style={{ padding: '4px 14px', borderRadius: 6, background: '#10B981', color: '#fff', border: 'none', fontSize: 12, fontWeight: 500, cursor: 'pointer', height: 28, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: toggleLoading[b.barangay_id] ? 0.7 : 1 }}>
-                        {toggleLoading[b.barangay_id] && <LoadingSpinner size={11} color="#fff" />} Enable
-                      </button>
-                    ))}
+                    <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                      {canUpdate && (
+                        <button onClick={() => openEdit(b)}
+                          style={{ padding: '4px 14px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'transparent', color: 'var(--color-text-primary)', fontSize: 12, fontWeight: 500, cursor: 'pointer', height: 28 }}>
+                          Edit
+                        </button>
+                      )}
+                      {canUpdate && (b.is_active ? (
+                        <button onClick={() => setDisableTarget(b)}
+                          style={{ padding: '4px 14px', borderRadius: 6, background: '#EF4444', color: '#fff', border: 'none', fontSize: 12, fontWeight: 500, cursor: 'pointer', height: 28 }}>
+                          Disable
+                        </button>
+                      ) : (
+                        <button onClick={() => handleEnable(b)} disabled={toggleLoading[b.barangay_id]}
+                          style={{ padding: '4px 14px', borderRadius: 6, background: '#10B981', color: '#fff', border: 'none', fontSize: 12, fontWeight: 500, cursor: 'pointer', height: 28, display: 'inline-flex', alignItems: 'center', gap: 6, opacity: toggleLoading[b.barangay_id] ? 0.7 : 1 }}>
+                          {toggleLoading[b.barangay_id] && <LoadingSpinner size={11} color="#fff" />} Enable
+                        </button>
+                      ))}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -176,14 +286,37 @@ export default function AdminBarangays() {
         />
       )}
 
+      {editTarget && (
+        <div onClick={e => { if (e.target === e.currentTarget) setEditTarget(null) }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div className="modal-animate" style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', width: 440, maxWidth: '90vw', padding: 28, boxShadow: 'var(--shadow-lg)' }}>
+            <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 18 }}>Edit Barangay</h2>
+            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>Barangay Name *</label>
+            <input value={editForm.barangay_name} onChange={e => { setEditForm(p => ({ ...p, barangay_name: e.target.value })); setEditErr('') }}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: `1px solid ${editErr ? '#EF4444' : 'var(--color-border)'}`, fontSize: 13, background: 'var(--color-bg)', color: 'var(--color-text-primary)', marginBottom: 14 }} />
+            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>Number</label>
+            <input value={editForm.barangay_number} onChange={e => setEditForm(p => ({ ...p, barangay_number: e.target.value }))}
+              style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-bg)', color: 'var(--color-text-primary)' }} />
+            {editErr && <div style={{ fontSize: 12, color: '#EF4444', marginTop: 8 }}>{editErr}</div>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
+              <button onClick={() => setEditTarget(null)} style={{ padding: '8px 20px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'transparent', fontSize: 14, cursor: 'pointer' }}>Cancel</button>
+              <button onClick={handleEditSave} disabled={editLoading} style={{ padding: '8px 20px', borderRadius: 6, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>
+                {editLoading && <LoadingSpinner size={13} color="#fff" />} Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showAdd && (
         <div onClick={e => { if (e.target === e.currentTarget) setShowAdd(false) }}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div className="modal-animate" style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', width: 440, maxWidth: '90vw', padding: 28, boxShadow: 'var(--shadow-lg)' }}>
             <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Add Barangay</h2>
             <p style={{ fontSize: 13, color: 'var(--color-text-muted)', marginTop: 0, marginBottom: 18 }}>
-              Onboards a barangay to the pilot. After adding, provision its official (Users),
-              add its streets (Streets), and set its map pin.
+              For a barangay outside Malate, or one PSGC doesn't have on file. For anything within
+              Malate, use "Sync from PSGC" instead to avoid typos in the name/number.
+              After adding, provision its official (Users), add its streets (Streets), and set its map pin.
             </p>
             <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>Barangay Name *</label>
             <input value={newBrgy.barangay_name} onChange={e => { setNewBrgy(p => ({ ...p, barangay_name: e.target.value })); setAddErr('') }}

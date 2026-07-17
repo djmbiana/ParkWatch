@@ -34,6 +34,8 @@ router.patch ('/users/:userId/supervisor',    ...sys, ugController.assignSupervi
 // ─── Barangays ───────────────────────────────────────────────────────────────
 router.get   ('/barangays',                          ...cp('brgy_mgt','manage','read'),   adminController.listBarangays);
 router.post  ('/barangays',                          ...cp('brgy_mgt','manage','create'), adminController.createBarangay);
+router.post  ('/barangays/sync',                     ...cp('brgy_mgt','manage','create'), adminController.syncBarangaysFromPsgc);
+router.patch ('/barangays/:barangayId',               ...cp('brgy_mgt','manage','update'), adminController.updateBarangay);
 router.patch ('/barangays/:barangayId/toggle',       ...cp('brgy_mgt','manage','update'), adminController.toggleBarangay);
 router.patch ('/barangays/:barangayId/location',     ...cp('brgy_mgt','manage','update'), adminController.setBarangayLocation);
 
