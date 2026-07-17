@@ -378,10 +378,13 @@ const resolveAndCount = async (reportId, vehicleId, outcome, ticketReference) =>
     );
     if (countable && vehicleId) {
       await connection.execute(
-        `UPDATE VEHICLES
-            SET is_repeat_offender = TRUE,
-                total_violations   = total_violations + 1
-          WHERE vehicle_id = ?`,
+        `UPDATE VEHICLES SET total_violations = total_violations + 1 WHERE vehicle_id = ?`,
+        [vehicleId]
+      );
+      // Repeat offender = 2+ confirmed violations (schema.sql:87). Recomputed as a
+      // separate statement so it reads the incremented value, not the stale one.
+      await connection.execute(
+        `UPDATE VEHICLES SET is_repeat_offender = (total_violations >= 2) WHERE vehicle_id = ?`,
         [vehicleId]
       );
     }
