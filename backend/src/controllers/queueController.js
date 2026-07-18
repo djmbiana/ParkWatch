@@ -83,7 +83,12 @@ function mapRow(r) {
 const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 const parseRange = (query = {}, { defaultTo = 'today' } = {}) => {
-  const today = new Date().toISOString().slice(0, 10);
+  // The DB stores UTC (Cloud SQL NOW() is UTC) but ParkWatch is a Manila
+  // system: a report submitted 2am PHT is 18:00 UTC the previous day. Cutting
+  // the day at UTC midnight = 8am PHT would misfile every early-morning report
+  // and make the "Daily" default show yesterday until 8am. Both the default
+  // date and the SQL comparisons work in Asia/Manila (UTC+8, no DST).
+  const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const { start_date, end_date } = query;
 
   const valid =
@@ -163,11 +168,11 @@ const barangayStats = async (req, res, next) => {
     const { start, end } = parseRange(req.query);
     const [[stats]] = await pool.execute(
       `SELECT
-         SUM(CASE WHEN r.status = 'pending'  AND DATE(r.submitted_at) BETWEEN ? AND ? THEN 1 ELSE 0 END) AS pending,
-         SUM(CASE WHEN r.status = 'verified' AND DATE(r.verified_at)  BETWEEN ? AND ? THEN 1 ELSE 0 END) AS verified,
-         SUM(CASE WHEN r.status = 'rejected' AND DATE(r.verified_at)  BETWEEN ? AND ? THEN 1 ELSE 0 END) AS rejected,
+         SUM(CASE WHEN r.status = 'pending'  AND DATE(CONVERT_TZ(r.submitted_at,'+00:00','+08:00')) BETWEEN ? AND ? THEN 1 ELSE 0 END) AS pending,
+         SUM(CASE WHEN r.status = 'verified' AND DATE(CONVERT_TZ(r.verified_at,'+00:00','+08:00'))  BETWEEN ? AND ? THEN 1 ELSE 0 END) AS verified,
+         SUM(CASE WHEN r.status = 'rejected' AND DATE(CONVERT_TZ(r.verified_at,'+00:00','+08:00'))  BETWEEN ? AND ? THEN 1 ELSE 0 END) AS rejected,
          COALESCE(AVG(CASE WHEN r.verified_at IS NOT NULL
-                            AND DATE(r.verified_at) BETWEEN ? AND ?
+                            AND DATE(CONVERT_TZ(r.verified_at,'+00:00','+08:00')) BETWEEN ? AND ?
                            THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.verified_at) END), 0) AS avg_review_min
        FROM VIOLATION_REPORTS r
        LEFT JOIN STREETS s ON s.street_id = r.street_id
@@ -472,9 +477,9 @@ const assign = async (req, res, next) => {
 const analyticsSummary = async (req, res, next) => {
   try {
     const { start, end } = parseRange(req.query, { defaultTo: 'all' });
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-    const dateFilter = `AND DATE(r.submitted_at) BETWEEN ? AND ?`;
+    const dateFilter = `AND DATE(CONVERT_TZ(r.submitted_at,'+00:00','+08:00')) BETWEEN ? AND ?`;
     const params = [today, start, end];   // `today` for resolved_today, then the range
 
     const [[s]] = await pool.execute(
@@ -486,7 +491,7 @@ const analyticsSummary = async (req, res, next) => {
          SUM(CASE WHEN r.status = 'rejected' THEN 1 ELSE 0 END) AS total_rejected,
          SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) AS pending_now,
          SUM(CASE WHEN r.status = 'escalated' THEN 1 ELSE 0 END) AS escalated_now,
-         SUM(CASE WHEN r.status = 'resolved' AND DATE(r.resolved_at) = ? THEN 1 ELSE 0 END) AS resolved_today,
+         SUM(CASE WHEN r.status = 'resolved' AND DATE(CONVERT_TZ(r.resolved_at,'+00:00','+08:00')) = ? THEN 1 ELSE 0 END) AS resolved_today,
          COALESCE(AVG(CASE WHEN r.verified_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.verified_at) END), 0) AS avg_verify_min,
          COALESCE(AVG(CASE WHEN r.acknowledged_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.verified_at, r.acknowledged_at) END), 0) AS avg_mtpb_response_min,
          COALESCE(AVG(CASE WHEN r.resolved_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.resolved_at) END), 0) AS avg_resolution_min,
@@ -508,12 +513,13 @@ const analyticsSummary = async (req, res, next) => {
          COUNT(*) AS total_repeat_offenders,
          SUM(CASE WHEN v.vehicle_id IN (
                SELECT vr.vehicle_id FROM VIOLATION_REPORTS vr
-                WHERE DATE(vr.submitted_at) BETWEEN ? AND ?
+                WHERE DATE(CONVERT_TZ(vr.submitted_at,'+00:00','+08:00')) BETWEEN ? AND ?
              ) THEN 1 ELSE 0 END) AS repeat_in_range,
          SUM(CASE WHEN v.vehicle_id IN (
                SELECT vr.vehicle_id FROM VIOLATION_REPORTS vr
-                WHERE YEAR(vr.submitted_at) = YEAR(CURDATE())
-                  AND MONTH(vr.submitted_at) = MONTH(CURDATE())
+                WHERE DATE(CONVERT_TZ(vr.submitted_at,'+00:00','+08:00'))
+                      BETWEEN DATE_FORMAT(CONVERT_TZ(NOW(),'+00:00','+08:00'), '%Y-%m-01')
+                          AND DATE(CONVERT_TZ(NOW(),'+00:00','+08:00'))
              ) THEN 1 ELSE 0 END) AS repeat_this_month
        FROM VEHICLES v
        WHERE v.total_violations >= 2`,
@@ -530,7 +536,7 @@ const analyticsSummary = async (req, res, next) => {
          JOIN PENALTY_TIERS t ON t.tier_id = r.penalty_tier_id
         WHERE r.status = 'resolved'
           AND r.resolution_outcome IN ('Ticket Issued','Wheel Clamp','Vehicle Clamped','Vehicle Impounded')
-          AND DATE(r.resolved_at) BETWEEN ? AND ?`,
+          AND DATE(CONVERT_TZ(r.resolved_at,'+00:00','+08:00')) BETWEEN ? AND ?`,
       [start, end]
     );
 
@@ -549,7 +555,6 @@ const analyticsSummary = async (req, res, next) => {
       total_repeat_offenders: Number(roStats.total_repeat_offenders ?? 0),  // all-time by definition
       repeat_this_month: Number(roStats.repeat_this_month ?? 0),
       total_fines_issued: Number(fineStats.total_fines ?? 0),
-      range: { start_date: start, end_date: end },
       // FIX 7 — paper/audit field names (additive).
       total_submitted: total,
       total_verified: Number(s.total_verified ?? 0),
@@ -561,6 +566,7 @@ const analyticsSummary = async (req, res, next) => {
       avg_verify_time_minutes: Math.round(Number(s.avg_verify_min ?? 0)),
       avg_acknowledgment_time_minutes: Math.round(Number(s.avg_mtpb_response_min ?? 0)),
       avg_resolution_time_minutes: Math.round(Number(s.avg_resolution_min ?? 0)),
+      range: { start_date: start, end_date: end },
     }});
   } catch (err) { return next(err); }
 };
