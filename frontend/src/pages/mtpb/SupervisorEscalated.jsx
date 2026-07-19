@@ -8,6 +8,7 @@ import PlateBadge from '../../components/PlateBadge'
 import PenaltyTierBadge from '../../components/PenaltyTierBadge'
 import StatusBadge from '../../components/StatusBadge'
 import LoadingSpinner from '../../components/LoadingSpinner'
+import DateRangeFilter, { formatDateRangeLabel } from '../../components/DateRangeFilter'
 import useAutoRefresh from '../../hooks/useAutoRefresh'
 
 const REFRESH_MS = 15000
@@ -61,6 +62,7 @@ export default function SupervisorEscalated() {
   const [modalLoading, setModalLoading] = useState(false)
   const lastFetch = useRef(Date.now())
   const [secAgo, setSecAgo] = useState(0)
+  const [dateRange, setDateRange] = useState({ range: '30d' })
 
   // Escalation config
   const [showConfig, setShowConfig] = useState(false)
@@ -72,13 +74,13 @@ export default function SupervisorEscalated() {
   useEffect(() => { setPageTitle('Escalated Reports') }, [setPageTitle])
 
   const fetchData = useCallback(() => {
-    return reports.supervisorQueue().then((q) => {
+    return reports.supervisorQueue(dateRange).then((q) => {
       setData(q?.reports ?? [])
       if (q?.stats) setStats(q.stats)
       lastFetch.current = Date.now()
       setSecAgo(0)
     }).catch(() => {}).finally(() => setLoading(false))
-  }, [])
+  }, [dateRange])
 
   useEffect(() => {
     fetchData()
@@ -207,11 +209,18 @@ export default function SupervisorEscalated() {
         )}
       </div>
 
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)' }}>
+          <span style={{ color: 'var(--color-escalated)', fontWeight: 600 }}>Escalated Now</span> is live, right now.
+          Everything else: <strong style={{ color: 'var(--color-text-secondary)' }}>{formatDateRangeLabel(stats.date_range)}</strong>
+        </p>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
+      </div>
       <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
         <StatCard value={stats.escalated_now ?? 0}         label="Escalated Now"        color="var(--color-escalated)" />
-        <StatCard value={`${stats.avg_escalation_min ?? 0} min`} label="Avg. Escalation Time" />
-        <StatCard value={stats.resolved_today ?? 0}        label="Resolved Today"        color="var(--color-resolved)" />
-        <StatCard value={`${stats.resolution_rate ?? 0}%`} label="Resolution Rate" />
+        <StatCard value={`${stats.avg_escalation_time_minutes ?? 0} min`} label="Avg. Escalation Time" trend={{ pct: stats.trend?.avg_escalation_time_minutes, positiveIsGood: false }} />
+        <StatCard value={stats.resolved_today ?? 0}        label="Resolved"             color="var(--color-resolved)" trend={{ pct: stats.trend?.resolved_today }} />
+        <StatCard value={`${stats.resolution_rate ?? 0}%`} label="Resolution Rate" trend={{ pct: stats.trend?.resolution_rate }} />
       </div>
 
       <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>

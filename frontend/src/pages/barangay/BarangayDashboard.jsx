@@ -6,18 +6,23 @@ import StatCard from '../../components/StatCard'
 import DataTable from '../../components/DataTable'
 import StatusBadge from '../../components/StatusBadge'
 import PlateBadge from '../../components/PlateBadge'
+import DateRangeFilter, { formatDateRangeLabel } from '../../components/DateRangeFilter'
 
 function fmt(dt) {
   if (!dt) return '-'
-  return new Date(dt).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })
+  // Date + time, not time-only — these are the most recent PENDING reports
+  // overall (not scoped to today), so a bare "3:45 PM" would be ambiguous
+  // for a quiet barangay where the top 5 span more than one day.
+  return new Date(dt).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 export default function BarangayDashboard() {
   const { setPageTitle } = useOutletContext()
   const navigate = useNavigate()
-  const [stats, setStats] = useState({ pending: 0, verified: 0, rejected: 0, avg_review_min: 0 })
+  const [stats, setStats] = useState({ pending: 0, verified: 0, rejected: 0, avg_review_min: 0, trend: {}, date_range: null })
   const [recent, setRecent] = useState([])
   const [loading, setLoading] = useState(true)
+  const [dateRange, setDateRange] = useState({ range: '30d' })
 
   useEffect(() => {
     setPageTitle('Dashboard')
@@ -25,14 +30,14 @@ export default function BarangayDashboard() {
 
   const fetchData = useCallback(() => (
     Promise.all([
-      reports.barangayStats().catch(() => null),
+      reports.barangayStats(dateRange).catch(() => null),
       reports.barangayQueue().catch(() => null),
     ]).then(([s, q]) => {
       if (s) setStats(s)
       const arr = Array.isArray(q) ? q : (q?.reports ?? [])
       setRecent(arr.slice(0, 5))
     }).finally(() => setLoading(false))
-  ), [])
+  ), [dateRange])
 
   useEffect(() => { fetchData() }, [fetchData])
   useAutoRefresh(fetchData, 15000)
@@ -64,11 +69,17 @@ export default function BarangayDashboard() {
 
   return (
     <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)' }}>
+          Showing <strong style={{ color: 'var(--color-text-secondary)' }}>{formatDateRangeLabel(stats.date_range)}</strong>
+        </p>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
+      </div>
       <div style={{ display: 'flex', gap: 16, marginBottom: 28, flexWrap: 'wrap' }}>
-        <StatCard value={stats.pending ?? 0}          label="Pending Today" />
-        <StatCard value={stats.verified ?? 0}         label="Verified Today" color="var(--color-verified)" />
-        <StatCard value={stats.rejected ?? 0}         label="Declined Today" color="var(--color-rejected)" />
-        <StatCard value={`${stats.avg_review_min ?? 0} min`} label="Avg. Review Time" />
+        <StatCard value={stats.pending ?? 0}          label="Pending"  trend={{ pct: stats.trend?.pending, positiveIsGood: false }} />
+        <StatCard value={stats.verified ?? 0}         label="Verified" color="var(--color-verified)" trend={{ pct: stats.trend?.verified }} />
+        <StatCard value={stats.rejected ?? 0}         label="Declined" color="var(--color-rejected)" trend={{ pct: stats.trend?.rejected, positiveIsGood: false }} />
+        <StatCard value={`${stats.avg_review_min ?? 0} min`} label="Avg. Review Time" trend={{ pct: stats.trend?.avg_review_min, positiveIsGood: false }} />
       </div>
 
       <div style={{
@@ -97,7 +108,7 @@ export default function BarangayDashboard() {
           columns={columns}
           data={recent}
           loading={loading}
-          emptyMessage="No pending reports today"
+          emptyMessage="No pending reports"
           onRowClick={row => navigate(`/barangay/reports/${row.report_id}`)}
         />
       </div>

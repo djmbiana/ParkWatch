@@ -9,7 +9,7 @@
  *   - "Decline" label in UI (not "Reject") — backend DB still stores 'rejected'
  *   - Parking rules table: Description + Ordinance columns (migration 035)
  *   - Enable/Disable toggle colors — Enable = green #059669, Disable = red #DC2626
- *   - "Declined Today" stat card label
+ *   - "Declined" stat card label (period-based, driven by the dashboard date-range filter)
  *   - Contest/appeal verdict panel for barangay official
  *   - Auto-refresh timestamp indicator
  *
@@ -41,7 +41,7 @@ test.describe('FR-12: Barangay queue structure', () => {
         body: JSON.stringify({ success: true, data: [] }),
       });
     });
-    await page.route('**/api/reports/stats/barangay', async (route) => {
+    await page.route('**/api/reports/stats/barangay**', async (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -60,7 +60,7 @@ test.describe('FR-12: Barangay queue structure', () => {
         body: JSON.stringify({ success: true, data: [MOCK_PENDING_REPORT] }),
       });
     });
-    await page.route('**/api/reports/stats/barangay', async (route) => {
+    await page.route('**/api/reports/stats/barangay**', async (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -82,24 +82,31 @@ test.describe('FR-12: Barangay queue structure', () => {
     await expect(page.getByRole('button', { name: /^Reject Report$/i })).toHaveCount(0);
   });
 
-  test('TC-BRG-03: Stat card label says "Declined Today" (not "Rejected Today")', async ({ page }) => {
+  test('TC-BRG-03: Stat card label says "Declined" (not "Rejected")', async ({ page }) => {
     await page.route('**/api/reports/queue/barangay', async (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: [] }),
+        body: JSON.stringify({ success: true, data: { reports: [] } }),
       });
     });
-    await page.route('**/api/reports/stats/barangay', async (route) => {
+    await page.route('**/api/reports/stats/barangay**', async (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ success: true, data: { pending: 0, verified_today: 5, rejected_today: 2 } }),
+        body: JSON.stringify({
+          success: true,
+          data: {
+            pending: 0, verified: 5, rejected: 2, avg_review_min: 10,
+            trend: { pending: 0, verified: 0, rejected: 0, avg_review_min: 0 },
+            date_range: { start: '2026-07-01', end: '2026-07-19', label: '2026-07-01 to 2026-07-19', preset: '30d' },
+          },
+        }),
       });
     });
     await loginAs('barangay', page, '/barangay/queue');
-    await expect(page.getByText(/Declined Today/i)).toBeVisible({ timeout: 6000 });
-    await expect(page.getByText(/Rejected Today/i)).toHaveCount(0);
+    await expect(page.getByText(/Declined/i).first()).toBeVisible({ timeout: 6000 });
+    await expect(page.getByText(/Rejected/i)).toHaveCount(0);
   });
 
   test('TC-BRG-04: Decline button requires a reason (disabled without input)', async ({ page }) => {
@@ -110,7 +117,7 @@ test.describe('FR-12: Barangay queue structure', () => {
         body: JSON.stringify({ success: true, data: [MOCK_PENDING_REPORT] }),
       });
     });
-    await page.route('**/api/reports/stats/barangay', async (route) => {
+    await page.route('**/api/reports/stats/barangay**', async (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -324,7 +331,7 @@ test.describe('Post-ISPROJ1: Auto-refresh', () => {
         body: JSON.stringify({ success: true, data: [] }),
       });
     });
-    await page.route('**/api/reports/stats/barangay', async (route) => {
+    await page.route('**/api/reports/stats/barangay**', async (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',

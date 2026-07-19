@@ -11,6 +11,7 @@ const logger = require('../config/logger');
 const notificationService = require('../services/notificationService');
 const { sendPaginated } = require('../utils/response');
 const { logAudit } = require('./userGroupsController');
+const { resolveDateRange, trendPct, mnl } = require('../utils/dateRange');
 
 const fail = (res, code, msg) => res.status(code).json({ success: false, message: msg });
 
@@ -70,38 +71,9 @@ function mapRow(r) {
     resolved_at: r.resolved_at,
   };
 }
-// ---------------------------------------------------------------------------
-// Shared date-range parsing for the analytics + stats endpoints (revision
-// items 1, 2, 7, 11). Callers pass ?start_date=YYYY-MM-DD&end_date=YYYY-MM-DD.
-//
-// The two callers had different pre-existing defaults, so the fallback is
-// explicit per caller: barangayStats was today-only, analyticsSummary was
-// unfiltered (all-time). Preserving both means no dashboard changes meaning
-// until the frontend picker ships and owns the default period (item 11).
-// An invalid or reversed range falls back rather than 500ing.
-// ---------------------------------------------------------------------------
-const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-const parseRange = (query = {}, { defaultTo = 'today' } = {}) => {
-  // The DB stores UTC (Cloud SQL NOW() is UTC) but ParkWatch is a Manila
-  // system: a report submitted 2am PHT is 18:00 UTC the previous day. Cutting
-  // the day at UTC midnight = 8am PHT would misfile every early-morning report
-  // and make the "Daily" default show yesterday until 8am. Both the default
-  // date and the SQL comparisons work in Asia/Manila (UTC+8, no DST).
-  const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const { start_date, end_date } = query;
-
-  const valid =
-    ISO_DATE_RE.test(start_date ?? '') &&
-    ISO_DATE_RE.test(end_date ?? '') &&
-    start_date <= end_date;
-
-  if (valid) return { start: start_date, end: end_date, isDefault: false };
-
-  return defaultTo === 'all'
-    ? { start: '1970-01-01', end: today, isDefault: true }
-    : { start: today, end: today, isDefault: true };
-};
+// Date-range parsing (presets, custom range, Manila-timezone "today", input
+// validation) lives in ../utils/dateRange.js (resolveDateRange/mnl) and is
+// shared by every endpoint below instead of being reimplemented per-function.
 // ---------------------------------------------------------------------------
 // GET /api/reports/queue/barangay
 // Shared cross-barangay database (paper's cross-barangay violation tracking):
@@ -127,32 +99,26 @@ const barangayQueue = async (req, res, next) => {
       [barangayId]
     );
 
-    const today = new Date().toISOString().slice(0, 10);
-    const [[stats]] = await pool.execute(
-      `SELECT
-         SUM(CASE WHEN r.status='pending'  AND DATE(r.submitted_at)=? THEN 1 ELSE 0 END) AS pending_today,
-         SUM(CASE WHEN r.status='verified' AND DATE(r.verified_at)=?  THEN 1 ELSE 0 END) AS verified_today,
-         SUM(CASE WHEN r.status='rejected' AND DATE(r.verified_at)=?  THEN 1 ELSE 0 END) AS rejected_today
-       FROM VIOLATION_REPORTS r
-       LEFT JOIN STREETS s ON s.street_id = r.street_id
-       WHERE COALESCE(r.barangay_id, s.barangay_id) = ?`,
-      [today, today, today, barangayId]
-    );
-
-    // Response carries reports + inline stats. Frontend already reads `data.reports`.
+    // No inline stats here — the dashboard/queue pages both call
+    // GET /api/reports/stats/barangay (barangayStats below) for stat-card
+    // data, so computing a second, unfiltered "today" set here would just be
+    // dead weight (and a second place for the numbers to drift out of sync).
     return res.json({ success: true, message: 'Success', data: {
       reports: rows.map(mapRow),
-      stats: {
-        pending_today: Number(stats.pending_today ?? 0),
-        verified_today: Number(stats.verified_today ?? 0),
-        rejected_today: Number(stats.rejected_today ?? 0),
-      },
     }});
   } catch (err) { return next(err); }
 };
 
 // ---------------------------------------------------------------------------
-// GET /api/reports/stats/barangay
+// GET /api/reports/stats/barangay?range=7d|30d|60d|today  (or start_date+end_date)
+//
+// "pending"/"verified"/"rejected" and avg_review_min are period activity —
+// how many reports were submitted/reviewed within the selected window — so
+// they respect the date range and carry a trend vs. the prior period of
+// equal length. There is no un-dated "current queue depth" metric on this
+// endpoint by design: the barangay portal's whole framing is "how much did
+// we handle in period X", not a live counter (that's what the queue table
+// itself is for).
 // ---------------------------------------------------------------------------
 const barangayStats = async (req, res, next) => {
   // FIX 3 — scoped to the official's own barangay (FR-12).
@@ -165,29 +131,45 @@ const barangayStats = async (req, res, next) => {
     });
   }
   try {
-    const { start, end } = parseRange(req.query);
-    const [[stats]] = await pool.execute(
-      `SELECT
-         SUM(CASE WHEN r.status = 'pending'  AND DATE(CONVERT_TZ(r.submitted_at,'+00:00','+08:00')) BETWEEN ? AND ? THEN 1 ELSE 0 END) AS pending,
-         SUM(CASE WHEN r.status = 'verified' AND DATE(CONVERT_TZ(r.verified_at,'+00:00','+08:00'))  BETWEEN ? AND ? THEN 1 ELSE 0 END) AS verified,
-         SUM(CASE WHEN r.status = 'rejected' AND DATE(CONVERT_TZ(r.verified_at,'+00:00','+08:00'))  BETWEEN ? AND ? THEN 1 ELSE 0 END) AS rejected,
-         COALESCE(AVG(CASE WHEN r.verified_at IS NOT NULL
-                            AND DATE(CONVERT_TZ(r.verified_at,'+00:00','+08:00')) BETWEEN ? AND ?
-                           THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.verified_at) END), 0) AS avg_review_min
-       FROM VIOLATION_REPORTS r
-       LEFT JOIN STREETS s ON s.street_id = r.street_id
-       WHERE COALESCE(r.barangay_id, s.barangay_id) = ?`,
-      [start, end, start, end, start, end, start, end, barangayId]
-    );
+    const { startDate, endDate, prevStartDate, prevEndDate, label, preset } = resolveDateRange(req.query);
+
+    // Manila-timezone comparisons throughout (see dateRange.js) — a report
+    // submitted at 2am PHT is still 18:00 UTC the previous day in the DB.
+    const runWindow = async (from, to) => {
+      const [[row]] = await pool.execute(
+        `SELECT
+           SUM(CASE WHEN r.status = 'pending'  AND DATE(${mnl('r.submitted_at')}) BETWEEN ? AND ? THEN 1 ELSE 0 END) AS pending,
+           SUM(CASE WHEN r.status = 'verified' AND DATE(${mnl('r.verified_at')})  BETWEEN ? AND ? THEN 1 ELSE 0 END) AS verified,
+           SUM(CASE WHEN r.status = 'rejected' AND DATE(${mnl('r.verified_at')})  BETWEEN ? AND ? THEN 1 ELSE 0 END) AS rejected,
+           COALESCE(AVG(CASE WHEN r.verified_at IS NOT NULL AND DATE(${mnl('r.verified_at')}) BETWEEN ? AND ?
+                          THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.verified_at) END), 0) AS avg_review_min
+         FROM VIOLATION_REPORTS r
+         LEFT JOIN STREETS s ON s.street_id = r.street_id
+         WHERE COALESCE(r.barangay_id, s.barangay_id) = ?`,
+        [from, to, from, to, from, to, from, to, barangayId]
+      );
+      return row;
+    };
+
+    const [current, previous] = await Promise.all([
+      runWindow(startDate, endDate),
+      runWindow(prevStartDate, prevEndDate),
+    ]);
+
+    const pending = Number(current.pending ?? 0);
+    const verified = Number(current.verified ?? 0);
+    const rejected = Number(current.rejected ?? 0);
+    const avgReviewMin = Math.round(Number(current.avg_review_min ?? 0));
 
     return res.json({ success: true, message: 'Success', data: {
-      pending: Number(stats.pending ?? 0),
-      verified: Number(stats.verified ?? 0),
-      rejected: Number(stats.rejected ?? 0),
-      avg_review_min: Math.round(Number(stats.avg_review_min ?? 0)),
-      // Echo the effective range so the dashboard can title the card/chart
-      // ("Pending — 1 Jul to 17 Jul") instead of showing an undated number.
-      range: { start_date: start, end_date: end },
+      pending, verified, rejected, avg_review_min: avgReviewMin,
+      trend: {
+        pending:  trendPct(pending,  previous.pending),
+        verified: trendPct(verified, previous.verified),
+        rejected: trendPct(rejected, previous.rejected),
+        avg_review_min: trendPct(avgReviewMin, Math.round(Number(previous.avg_review_min ?? 0))),
+      },
+      date_range: { start: startDate, end: endDate, label, preset },
     }});
   } catch (err) { return next(err); }
 };
@@ -472,101 +454,154 @@ const assign = async (req, res, next) => {
 };
 
 // ---------------------------------------------------------------------------
-// GET /api/reports/analytics/summary
+// GET /api/reports/analytics/summary?range=7d|30d|60d|today  (or start_date+end_date)
+//
+// Two kinds of metric, deliberately handled differently:
+//  - "Current state" (pending_now, escalated_now, total_repeat_offenders): a
+//    live queue-depth/roster snapshot. Never date-filtered — filtering "how
+//    many are escalated right now" by a submission-date range doesn't mean
+//    anything, and would make the number silently wrong for old-but-still-
+//    escalated reports outside the window.
+//  - "Period activity" (submitted/resolved/rejected counts, avg durations,
+//    fines issued, repeat offenders active in the period): scoped to the
+//    selected range, each against the timestamp that actually happened in
+//    that window (submitted_at for submissions, resolved_at for resolutions,
+//    etc.) — not all pinned to submitted_at like the previous version, which
+//    made "Reports Resolved" actually mean "resolved reports that happened
+//    to be SUBMITTED in this window", silently excluding reports submitted
+//    earlier but resolved during the selected period.
 // ---------------------------------------------------------------------------
 const analyticsSummary = async (req, res, next) => {
   try {
-    const { start, end } = parseRange(req.query, { defaultTo: 'all' });
-    const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const { startDate, endDate, prevStartDate, prevEndDate, label, preset } = resolveDateRange(req.query);
 
-    const dateFilter = `AND DATE(CONVERT_TZ(r.submitted_at,'+00:00','+08:00')) BETWEEN ? AND ?`;
-    const params = [today, start, end];   // `today` for resolved_today, then the range
-
-    const [[s]] = await pool.execute(
-      `SELECT
-         COUNT(*) AS reports_submitted,
-         SUM(CASE WHEN r.status = 'resolved' THEN 1 ELSE 0 END) AS reports_resolved,
-         SUM(CASE WHEN r.status IN ('verified','acknowledged','dispatched','resolved') THEN 1 ELSE 0 END) AS total_verified,
-         SUM(CASE WHEN r.status IN ('acknowledged','dispatched','resolved') THEN 1 ELSE 0 END) AS total_acknowledged,
-         SUM(CASE WHEN r.status = 'rejected' THEN 1 ELSE 0 END) AS total_rejected,
-         SUM(CASE WHEN r.status = 'pending' THEN 1 ELSE 0 END) AS pending_now,
-         SUM(CASE WHEN r.status = 'escalated' THEN 1 ELSE 0 END) AS escalated_now,
-         SUM(CASE WHEN r.status = 'resolved' AND DATE(CONVERT_TZ(r.resolved_at,'+00:00','+08:00')) = ? THEN 1 ELSE 0 END) AS resolved_today,
-         COALESCE(AVG(CASE WHEN r.verified_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.verified_at) END), 0) AS avg_verify_min,
-         COALESCE(AVG(CASE WHEN r.acknowledged_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.verified_at, r.acknowledged_at) END), 0) AS avg_mtpb_response_min,
-         COALESCE(AVG(CASE WHEN r.resolved_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.resolved_at) END), 0) AS avg_resolution_min,
-         COALESCE(AVG(CASE WHEN r.escalated_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, r.verified_at, r.escalated_at) END), 0) AS avg_escalation_min
-       FROM VIOLATION_REPORTS r
-       WHERE 1=1 ${dateFilter}`,
-      params
-    );
-
-    const total = Number(s.reports_submitted ?? 0);
-    const resolved = Number(s.reports_resolved ?? 0);
-    const rate = total > 0 ? Math.round((resolved / total) * 100) : 0;
-
-    // A repeat offender is a VEHICLE with >= 2 confirmed violations (matches the
-    // repeat-offenders table). Counting distinct reported vehicles was wrong —
-    // it flagged every first-time vehicle as a "repeat offender".
-    const [[roStats]] = await pool.execute(
-      `SELECT
-         COUNT(*) AS total_repeat_offenders,
-         SUM(CASE WHEN v.vehicle_id IN (
-               SELECT vr.vehicle_id FROM VIOLATION_REPORTS vr
-                WHERE DATE(CONVERT_TZ(vr.submitted_at,'+00:00','+08:00')) BETWEEN ? AND ?
-             ) THEN 1 ELSE 0 END) AS repeat_in_range,
-         SUM(CASE WHEN v.vehicle_id IN (
-               SELECT vr.vehicle_id FROM VIOLATION_REPORTS vr
-                WHERE DATE(CONVERT_TZ(vr.submitted_at,'+00:00','+08:00'))
-                      BETWEEN DATE_FORMAT(CONVERT_TZ(NOW(),'+00:00','+08:00'), '%Y-%m-01')
-                          AND DATE(CONVERT_TZ(NOW(),'+00:00','+08:00'))
-             ) THEN 1 ELSE 0 END) AS repeat_this_month
-       FROM VEHICLES v
-       WHERE v.total_violations >= 2`,
-      [start, end]
-    );
-
-    // Total fines = sum of the tier fine ONLY for reports that actually issued a
-    // fine (a paperwork outcome). A report resolved as "Vehicle No Longer Present"
-    // keeps the tier assigned at submission but no fine was issued, so it must not
-    // be counted; a Verbal Warning has a 0 fine.
-    const [[fineStats]] = await pool.execute(
-      `SELECT COALESCE(SUM(t.fine_amount), 0) AS total_fines
+    // Manila-timezone comparisons throughout (see dateRange.js) — every
+    // DATE(col) is wrapped with mnl() so a report submitted at 2am PHT isn't
+    // misfiled into the previous UTC day.
+    const runPeriod = async (from, to) => {
+      const [[row]] = await pool.execute(
+        `SELECT
+           SUM(CASE WHEN DATE(${mnl('r.submitted_at')}) BETWEEN ? AND ? THEN 1 ELSE 0 END) AS reports_submitted,
+           SUM(CASE WHEN r.status = 'resolved' AND DATE(${mnl('r.resolved_at')}) BETWEEN ? AND ? THEN 1 ELSE 0 END) AS reports_resolved,
+           SUM(CASE WHEN r.status = 'rejected' AND DATE(${mnl('r.verified_at')})  BETWEEN ? AND ? THEN 1 ELSE 0 END) AS total_rejected,
+           SUM(CASE WHEN r.status IN ('verified','acknowledged','dispatched','resolved')
+                     AND DATE(${mnl('r.verified_at')}) BETWEEN ? AND ? THEN 1 ELSE 0 END) AS total_verified,
+           SUM(CASE WHEN r.status IN ('acknowledged','dispatched','resolved')
+                     AND DATE(${mnl('r.acknowledged_at')}) BETWEEN ? AND ? THEN 1 ELSE 0 END) AS total_acknowledged,
+           COALESCE(AVG(CASE WHEN r.verified_at IS NOT NULL AND DATE(${mnl('r.verified_at')}) BETWEEN ? AND ?
+                          THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.verified_at) END), 0) AS avg_verify_min,
+           COALESCE(AVG(CASE WHEN r.acknowledged_at IS NOT NULL AND DATE(${mnl('r.acknowledged_at')}) BETWEEN ? AND ?
+                          THEN TIMESTAMPDIFF(MINUTE, r.verified_at, r.acknowledged_at) END), 0) AS avg_mtpb_response_min,
+           COALESCE(AVG(CASE WHEN r.resolved_at IS NOT NULL AND DATE(${mnl('r.resolved_at')}) BETWEEN ? AND ?
+                          THEN TIMESTAMPDIFF(MINUTE, r.submitted_at, r.resolved_at) END), 0) AS avg_resolution_min,
+           COALESCE(AVG(CASE WHEN r.escalated_at IS NOT NULL AND DATE(${mnl('r.escalated_at')}) BETWEEN ? AND ?
+                          THEN TIMESTAMPDIFF(MINUTE, r.verified_at, r.escalated_at) END), 0) AS avg_escalation_min
          FROM VIOLATION_REPORTS r
-         JOIN PENALTY_TIERS t ON t.tier_id = r.penalty_tier_id
-        WHERE r.status = 'resolved'
-          AND r.resolution_outcome IN ('Ticket Issued','Wheel Clamp','Vehicle Clamped','Vehicle Impounded')
-          AND DATE(CONVERT_TZ(r.resolved_at,'+00:00','+08:00')) BETWEEN ? AND ?`,
-      [start, end]
+         WHERE DATE(${mnl('r.submitted_at')}) BETWEEN ? AND ?
+            OR DATE(${mnl('r.resolved_at')}) BETWEEN ? AND ?
+            OR DATE(${mnl('r.verified_at')}) BETWEEN ? AND ?
+            OR DATE(${mnl('r.acknowledged_at')}) BETWEEN ? AND ?
+            OR DATE(${mnl('r.escalated_at')}) BETWEEN ? AND ?`,
+        Array(14).fill([from, to]).flat()
+      );
+
+      // Fines issued for reports actually resolved in this window (a paperwork
+      // outcome — Verbal Warning is 0, "Vehicle No Longer Present" issues none).
+      const [[fineRow]] = await pool.execute(
+        `SELECT COALESCE(SUM(t.fine_amount), 0) AS total_fines
+           FROM VIOLATION_REPORTS r
+           JOIN PENALTY_TIERS t ON t.tier_id = r.penalty_tier_id
+          WHERE r.status = 'resolved' AND DATE(${mnl('r.resolved_at')}) BETWEEN ? AND ?
+            AND r.resolution_outcome IN ('Ticket Issued','Wheel Clamp','Vehicle Clamped','Vehicle Impounded')`,
+        [from, to]
+      );
+
+      // Repeat offenders (>=2 confirmed violations) with at least one report
+      // submitted in this window — "repeat offender activity during period X".
+      const [[repeatRow]] = await pool.execute(
+        `SELECT COUNT(DISTINCT v.vehicle_id) AS repeat_in_range
+           FROM VEHICLES v
+           JOIN VIOLATION_REPORTS vr ON vr.vehicle_id = v.vehicle_id
+          WHERE v.total_violations >= 2 AND DATE(${mnl('vr.submitted_at')}) BETWEEN ? AND ?`,
+        [from, to]
+      );
+
+      const submitted = Number(row.reports_submitted ?? 0);
+      const resolved = Number(row.reports_resolved ?? 0);
+      return {
+        reports_submitted: submitted,
+        reports_resolved: resolved,
+        total_verified: Number(row.total_verified ?? 0),
+        total_acknowledged: Number(row.total_acknowledged ?? 0),
+        total_rejected: Number(row.total_rejected ?? 0),
+        resolution_rate: submitted > 0 ? Math.round((resolved / submitted) * 100) : 0,
+        avg_verify_min: Math.round(Number(row.avg_verify_min ?? 0)),
+        avg_mtpb_response_min: Math.round(Number(row.avg_mtpb_response_min ?? 0)),
+        avg_resolution_min: Math.round(Number(row.avg_resolution_min ?? 0)),
+        avg_escalation_min: Math.round(Number(row.avg_escalation_min ?? 0)),
+        total_fines_issued: Number(fineRow.total_fines ?? 0),
+        repeat_offenders_in_range: Number(repeatRow.repeat_in_range ?? 0),
+      };
+    };
+
+    const [current, previous] = await Promise.all([
+      runPeriod(startDate, endDate),
+      runPeriod(prevStartDate, prevEndDate),
+    ]);
+
+    // Current-state snapshot — deliberately NOT part of runPeriod, never date-filtered.
+    const [[stateRow]] = await pool.execute(
+      `SELECT
+         SUM(CASE WHEN status = 'pending'   THEN 1 ELSE 0 END) AS pending_now,
+         SUM(CASE WHEN status = 'escalated' THEN 1 ELSE 0 END) AS escalated_now
+       FROM VIOLATION_REPORTS`
     );
+
+    // A repeat offender is a VEHICLE with >= 2 confirmed violations, all-time by
+    // definition — not date-filtered.
+    const [[roStats]] = await pool.execute(
+      `SELECT COUNT(*) AS total_repeat_offenders FROM VEHICLES WHERE total_violations >= 2`
+    );
+
+    const trend = {
+      reports_submitted: trendPct(current.reports_submitted, previous.reports_submitted),
+      reports_resolved: trendPct(current.reports_resolved, previous.reports_resolved),
+      resolution_rate: trendPct(current.resolution_rate, previous.resolution_rate),
+      avg_verify_min: trendPct(current.avg_verify_min, previous.avg_verify_min),
+      avg_mtpb_response_min: trendPct(current.avg_mtpb_response_min, previous.avg_mtpb_response_min),
+      avg_resolution_min: trendPct(current.avg_resolution_min, previous.avg_resolution_min),
+      avg_escalation_min: trendPct(current.avg_escalation_min, previous.avg_escalation_min),
+      total_fines_issued: trendPct(current.total_fines_issued, previous.total_fines_issued),
+    };
 
     return res.json({ success: true, message: 'Success', data: {
-      // Existing field names (kept for the supervisor portal / CSV).
-      reports_submitted: total,
-      reports_resolved: resolved,
-      pending_now: Number(s.pending_now ?? 0),
-      escalated_now: Number(s.escalated_now ?? 0),
-      resolved_today: Number(s.resolved_today ?? 0),
-      resolution_rate: rate,
-      repeat_in_range: Number(roStats.repeat_in_range ?? 0),
-      avg_verify_min: Math.round(Number(s.avg_verify_min ?? 0)),
-      avg_mtpb_response_min: Math.round(Number(s.avg_mtpb_response_min ?? 0)),
-      avg_escalation_min: Math.round(Number(s.avg_escalation_min ?? 0)),
-      total_repeat_offenders: Number(roStats.total_repeat_offenders ?? 0),  // all-time by definition
-      repeat_this_month: Number(roStats.repeat_this_month ?? 0),
-      total_fines_issued: Number(fineStats.total_fines ?? 0),
+      // Existing field names (kept for the supervisor portal / CSV) — now
+      // period-scoped to the selected date range instead of all-time/today.
+      reports_submitted: current.reports_submitted,
+      reports_resolved: current.reports_resolved,
+      pending_now: Number(stateRow.pending_now ?? 0),
+      escalated_now: Number(stateRow.escalated_now ?? 0),
+      resolved_today: current.reports_resolved, // kept for back-compat; equal to reports_resolved for the selected range
+      resolution_rate: current.resolution_rate,
+      avg_verify_min: current.avg_verify_min,
+      avg_mtpb_response_min: current.avg_mtpb_response_min,
+      avg_escalation_min: current.avg_escalation_min,
+      total_repeat_offenders: Number(roStats.total_repeat_offenders ?? 0),
+      repeat_this_month: current.repeat_offenders_in_range, // kept for back-compat; now range-scoped, not hardcoded to the calendar month
+      total_fines_issued: current.total_fines_issued,
       // FIX 7 — paper/audit field names (additive).
-      total_submitted: total,
-      total_verified: Number(s.total_verified ?? 0),
-      total_acknowledged: Number(s.total_acknowledged ?? 0),
-      total_escalated: Number(s.escalated_now ?? 0),
-      total_resolved: resolved,
-      total_rejected: Number(s.total_rejected ?? 0),
-      pending: Number(s.pending_now ?? 0),
-      avg_verify_time_minutes: Math.round(Number(s.avg_verify_min ?? 0)),
-      avg_acknowledgment_time_minutes: Math.round(Number(s.avg_mtpb_response_min ?? 0)),
-      avg_resolution_time_minutes: Math.round(Number(s.avg_resolution_min ?? 0)),
-      range: { start_date: start, end_date: end },
+      total_submitted: current.reports_submitted,
+      total_verified: current.total_verified,
+      total_acknowledged: current.total_acknowledged,
+      total_escalated: Number(stateRow.escalated_now ?? 0),
+      total_resolved: current.reports_resolved,
+      total_rejected: current.total_rejected,
+      pending: Number(stateRow.pending_now ?? 0),
+      avg_verify_time_minutes: current.avg_verify_min,
+      avg_acknowledgment_time_minutes: current.avg_mtpb_response_min,
+      avg_resolution_time_minutes: current.avg_resolution_min,
+      trend,
+      date_range: { start: startDate, end: endDate, label, preset },
     }});
   } catch (err) { return next(err); }
 };
@@ -619,8 +654,19 @@ const repeatOffenders = async (req, res, next) => {
 // Per-street violation counts (with coordinates) for the supervisor heat map.
 // Excludes rejected reports; only streets with coordinates and ≥1 violation.
 // ---------------------------------------------------------------------------
+// GET /api/reports/analytics/violation-map?range=7d|30d|60d|today  (or start_date+end_date)
+// Date range is OPTIONAL here (unlike the other analytics endpoints): with no
+// range param at all this stays all-time (cumulative hotspots — the original,
+// still the most useful default for enforcement resource planning), but the
+// Supervisor Reports page passes its selected range so the map narrows
+// consistently with the rest of that page when the user picks one.
 const violationMap = async (req, res, next) => {
   try {
+    const hasRange = !!(req.query.range || (req.query.start_date && req.query.end_date));
+    const dateRange = hasRange ? resolveDateRange(req.query) : null;
+    const dateFilter = dateRange ? 'AND DATE(r.submitted_at) BETWEEN ? AND ?' : '';
+    const params = dateRange ? [dateRange.startDate, dateRange.endDate] : [];
+
     // Barangay-level density: one point per barangay at its verified OSM centroid,
     // counting all non-rejected reports in that barangay. Plotting per-street was
     // unreliable (Manila street names repeat; barangay boundaries aren't published).
@@ -629,23 +675,28 @@ const violationMap = async (req, res, next) => {
               COUNT(r.report_id) AS violation_count
          FROM BARANGAYS b
          LEFT JOIN VIOLATION_REPORTS r
-                ON r.barangay_id = b.barangay_id AND r.status <> 'rejected'
+                ON r.barangay_id = b.barangay_id AND r.status <> 'rejected' ${dateFilter}
         WHERE b.latitude IS NOT NULL AND b.longitude IS NOT NULL
         GROUP BY b.barangay_id, b.barangay_name, b.latitude, b.longitude
        HAVING violation_count > 0
-        ORDER BY violation_count DESC`
+        ORDER BY violation_count DESC`,
+      params
     );
 
     return res.json({
       success: true,
       message: 'Success',
-      data: rows.map((r) => ({
-        barangay_id: r.barangay_id,
-        barangay_name: r.barangay_name,
-        latitude: Number(r.latitude),
-        longitude: Number(r.longitude),
-        violation_count: Number(r.violation_count),
-      })),
+      data: {
+        points: rows.map((r) => ({
+          barangay_id: r.barangay_id,
+          barangay_name: r.barangay_name,
+          latitude: Number(r.latitude),
+          longitude: Number(r.longitude),
+          violation_count: Number(r.violation_count),
+        })),
+        generated_at: new Date().toISOString(),
+        date_range: dateRange ? { start: dateRange.startDate, end: dateRange.endDate, label: dateRange.label, preset: dateRange.preset } : null,
+      },
     });
   } catch (err) { return next(err); }
 };
@@ -667,19 +718,39 @@ const supervisorQueue = async (req, res, next) => {
        ORDER BY r.escalated_at ASC`
     );
 
-    const today = new Date().toISOString().slice(0, 10);
-    const [[s]] = await pool.execute(
-      `SELECT
-         SUM(CASE WHEN status = 'escalated' THEN 1 ELSE 0 END) AS escalated_now,
-         COALESCE(AVG(CASE WHEN escalated_at IS NOT NULL THEN TIMESTAMPDIFF(MINUTE, verified_at, escalated_at) END), 0) AS avg_escalation_time_minutes,
-         SUM(CASE WHEN status = 'resolved' AND DATE(resolved_at) = ? THEN 1 ELSE 0 END) AS resolved_today,
-         COUNT(*) AS total_submitted,
-         SUM(CASE WHEN status = 'resolved' THEN 1 ELSE 0 END) AS total_resolved
-       FROM VIOLATION_REPORTS`,
-      [today]
+    // escalated_now is current queue depth — never date-filtered (same
+    // reasoning as analyticsSummary above).
+    const [[stateRow]] = await pool.execute(
+      `SELECT SUM(CASE WHEN status = 'escalated' THEN 1 ELSE 0 END) AS escalated_now FROM VIOLATION_REPORTS`
     );
-    const total = Number(s.total_submitted ?? 0);
-    const resolved = Number(s.total_resolved ?? 0);
+
+    // avg_escalation_time_minutes / resolved-in-range / resolution_rate are
+    // period activity, scoped to the selected date range with a trend vs the
+    // prior period of equal length.
+    const { startDate, endDate, prevStartDate, prevEndDate, label, preset } = resolveDateRange(req.query);
+    const runPeriod = async (from, to) => {
+      const [[row]] = await pool.execute(
+        `SELECT
+           COALESCE(AVG(CASE WHEN escalated_at IS NOT NULL AND DATE(escalated_at) BETWEEN ? AND ?
+                          THEN TIMESTAMPDIFF(MINUTE, verified_at, escalated_at) END), 0) AS avg_escalation_time_minutes,
+           SUM(CASE WHEN status = 'resolved' AND DATE(resolved_at) BETWEEN ? AND ? THEN 1 ELSE 0 END) AS resolved_in_range,
+           SUM(CASE WHEN DATE(submitted_at) BETWEEN ? AND ? THEN 1 ELSE 0 END) AS submitted_in_range
+         FROM VIOLATION_REPORTS
+         WHERE DATE(submitted_at) BETWEEN ? AND ? OR DATE(resolved_at) BETWEEN ? AND ? OR DATE(escalated_at) BETWEEN ? AND ?`,
+        Array(6).fill([from, to]).flat()
+      );
+      const submitted = Number(row.submitted_in_range ?? 0);
+      const resolved = Number(row.resolved_in_range ?? 0);
+      return {
+        avg_escalation_time_minutes: Math.round(Number(row.avg_escalation_time_minutes ?? 0)),
+        resolved_in_range: resolved,
+        resolution_rate: submitted > 0 ? Math.round((resolved / submitted) * 100) : 0,
+      };
+    };
+    const [current, previous] = await Promise.all([
+      runPeriod(startDate, endDate),
+      runPeriod(prevStartDate, prevEndDate),
+    ]);
 
     const reports = rows.map((r) => ({
       ...mapRow(r),
@@ -690,10 +761,16 @@ const supervisorQueue = async (req, res, next) => {
     return res.json({ success: true, message: 'Success', data: {
       reports,
       stats: {
-        escalated_now: Number(s.escalated_now ?? 0),
-        avg_escalation_time_minutes: Math.round(Number(s.avg_escalation_time_minutes ?? 0)),
-        resolved_today: Number(s.resolved_today ?? 0),
-        resolution_rate: total > 0 ? Math.round((resolved / total) * 100) : 0,
+        escalated_now: Number(stateRow.escalated_now ?? 0),
+        avg_escalation_time_minutes: current.avg_escalation_time_minutes,
+        resolved_today: current.resolved_in_range, // kept for back-compat; now range-scoped, not hardcoded to today
+        resolution_rate: current.resolution_rate,
+        trend: {
+          avg_escalation_time_minutes: trendPct(current.avg_escalation_time_minutes, previous.avg_escalation_time_minutes),
+          resolved_today: trendPct(current.resolved_in_range, previous.resolved_in_range),
+          resolution_rate: trendPct(current.resolution_rate, previous.resolution_rate),
+        },
+        date_range: { start: startDate, end: endDate, label, preset },
       },
     }});
   } catch (err) { return next(err); }

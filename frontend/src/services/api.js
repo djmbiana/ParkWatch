@@ -74,7 +74,7 @@ export const reports = {
   supervisorQueue:(params = {}) => request(`/api/reports/queue/supervisor${qs(params)}`),
   analyticsSum:   (params = {}) => request(`/api/reports/analytics/summary${qs(params)}`),
   repeatOffenders:() => request('/api/reports/analytics/repeat-offenders'),
-  violationMap:   () => request('/api/reports/analytics/violation-map', { cache: 'no-store' }),
+  violationMap:   (params = {}) => request(`/api/reports/analytics/violation-map${qs(params)}`, { cache: 'no-store' }),
   getById:        (id) => request(`/api/reports/${id}`),
   verify:         (id, body) => request(`/api/reports/${id}/verify`,      { method: 'PATCH', body: JSON.stringify(body) }),
   acknowledge:    (id) =>       request(`/api/reports/${id}/acknowledge`, { method: 'PATCH' }),

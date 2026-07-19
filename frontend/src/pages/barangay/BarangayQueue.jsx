@@ -5,13 +5,14 @@ import StatCard from '../../components/StatCard'
 import DataTable from '../../components/DataTable'
 import StatusBadge from '../../components/StatusBadge'
 import PlateBadge from '../../components/PlateBadge'
+import DateRangeFilter, { formatDateRangeLabel } from '../../components/DateRangeFilter'
 import useAutoRefresh from '../../hooks/useAutoRefresh'
 
 const REFRESH_MS = 15000
 
 function fmt(dt) {
   if (!dt) return '-'
-  return new Date(dt).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })
+  return new Date(dt).toLocaleString('en-PH', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 function OcrCell({ score, manual }) {
@@ -25,11 +26,11 @@ export default function BarangayQueue() {
   const { setPageTitle } = useOutletContext()
   const navigate = useNavigate()
   const [data, setData] = useState([])
-  const [stats, setStats] = useState({ pending: 0, verified: 0, rejected: 0, avg_review_min: 0 })
+  const [stats, setStats] = useState({ pending: 0, verified: 0, rejected: 0, avg_review_min: 0, trend: {}, date_range: null })
   const [loading, setLoading] = useState(true)
   const [secAgo, setSecAgo] = useState(0)
   const [filterViolation, setFilterViolation] = useState('all')
-  const [filterDate, setFilterDate] = useState('today')
+  const [dateRange, setDateRange] = useState({ range: '30d' })
   const lastFetch = useRef(Date.now())
 
   useEffect(() => { setPageTitle('Pending Verification Queue') }, [setPageTitle])
@@ -37,7 +38,7 @@ export default function BarangayQueue() {
   const fetchData = useCallback(() => {
     return Promise.all([
       reports.barangayQueue().catch(() => null),
-      reports.barangayStats().catch(() => null),
+      reports.barangayStats(dateRange).catch(() => null),
     ]).then(([q, s]) => {
       const arr = Array.isArray(q) ? q : (q?.reports ?? [])
       setData(arr)
@@ -45,7 +46,7 @@ export default function BarangayQueue() {
       lastFetch.current = Date.now()
       setSecAgo(0)
     }).finally(() => setLoading(false))
-  }, [])
+  }, [dateRange])
 
   useEffect(() => {
     fetchData()
@@ -56,12 +57,12 @@ export default function BarangayQueue() {
 
   const violationTypes = ['all', ...new Set(data.map(r => r.violation_type).filter(Boolean))]
 
+  // The table is always the full current backlog (pending + contested) — an
+  // official needs to see everything to clear the queue, not have older
+  // unactioned reports hidden by a date filter. The date range above only
+  // windows the stat cards (period activity), never this list.
   let filtered = data
   if (filterViolation !== 'all') filtered = filtered.filter(r => r.violation_type === filterViolation)
-  if (filterDate === 'today') {
-    const today = new Date().toDateString()
-    filtered = filtered.filter(r => r.submitted_at && new Date(r.submitted_at).toDateString() === today)
-  }
 
   const columns = [
     {
@@ -109,11 +110,17 @@ export default function BarangayQueue() {
 
   return (
     <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)' }}>
+          Showing <strong style={{ color: 'var(--color-text-secondary)' }}>{formatDateRangeLabel(stats.date_range)}</strong>
+        </p>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
+      </div>
       <div style={{ display: 'flex', gap: 16, marginBottom: 24, flexWrap: 'wrap' }}>
-        <StatCard value={stats.pending ?? 0}          label="Pending Today" />
-        <StatCard value={stats.verified ?? 0}         label="Verified Today" color="var(--color-verified)" />
-        <StatCard value={stats.rejected ?? 0}         label="Declined Today" color="var(--color-rejected)" />
-        <StatCard value={`${stats.avg_review_min ?? 0} min`} label="Avg. Review Time" />
+        <StatCard value={stats.pending ?? 0}          label="Pending"  trend={{ pct: stats.trend?.pending, positiveIsGood: false }} />
+        <StatCard value={stats.verified ?? 0}         label="Verified" color="var(--color-verified)" trend={{ pct: stats.trend?.verified }} />
+        <StatCard value={stats.rejected ?? 0}         label="Declined" color="var(--color-rejected)" trend={{ pct: stats.trend?.rejected, positiveIsGood: false }} />
+        <StatCard value={`${stats.avg_review_min ?? 0} min`} label="Avg. Review Time" trend={{ pct: stats.trend?.avg_review_min, positiveIsGood: false }} />
       </div>
 
       <div style={{
@@ -129,7 +136,7 @@ export default function BarangayQueue() {
           borderBottom: '1px solid var(--color-border)',
         }}>
           <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: '#0F1117', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            Queue
+            Queue <span style={{ textTransform: 'none', fontWeight: 400, color: 'var(--color-text-muted)', letterSpacing: 'normal' }}>· full backlog, not date-limited</span>
           </span>
           <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>
             Updated {secAgo}s ago
@@ -147,19 +154,6 @@ export default function BarangayQueue() {
             {violationTypes.map(v => (
               <option key={v} value={v}>{v === 'all' ? 'All Violations' : v}</option>
             ))}
-          </select>
-          <select
-            value={filterDate}
-            onChange={e => setFilterDate(e.target.value)}
-            style={{
-              padding: '6px 10px', borderRadius: 6,
-              border: '1px solid var(--color-border)',
-              fontSize: 12, color: 'var(--color-text-secondary)',
-              background: 'var(--color-surface)', cursor: 'pointer',
-            }}
-          >
-            <option value="today">Today</option>
-            <option value="all">All Time</option>
           </select>
         </div>
 

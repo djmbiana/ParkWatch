@@ -7,6 +7,7 @@ import StatCard from '../../components/StatCard'
 import PlateBadge from '../../components/PlateBadge'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ViolationHeatMap from '../../components/ViolationHeatMap'
+import DateRangeFilter, { formatDateRangeLabel } from '../../components/DateRangeFilter'
 import useAutoRefresh from '../../hooks/useAutoRefresh'
 
 function downloadCsv(filename, rows, title) {
@@ -72,7 +73,7 @@ td{padding:8px 10px;border-bottom:1px solid #F3F4F6}
 @media print{body{background:#fff}}
 </style></head><body>
 <h1>ParkWatch</h1>
-<div class="sub">Enforcement Activity Report &mdash; Generated ${new Date().toLocaleString('en-PH')}</div>
+<div class="sub">Enforcement Activity Report &mdash; Period: ${s.date_range?.label ?? 'all time'} &mdash; Generated ${new Date().toLocaleString('en-PH')}</div>
 <div class="metrics">${metrics.map(m => `<div class="metric"><div class="val">${m.value}</div><div class="lbl">${m.label}</div></div>`).join('')}</div>
 ${top.length > 0 ? `<div class="section"><h2>Repeat Offenders (Top ${top.length})</h2>
 <svg width="${chartW}" height="${chartH + labelH + 8}" style="display:block;margin-bottom:16px;overflow:visible">
@@ -92,17 +93,14 @@ export default function SupervisorReports() {
   const [stats, setStats] = useState({})
   const [repeatOffenders, setRepeatOffenders] = useState([])
   const [loading, setLoading] = useState(true)
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
+  const [dateRange, setDateRange] = useState({ range: '30d' })
   const [barangay, setBarangay] = useState('')
   const [genLoading, setGenLoading] = useState('')
 
   useEffect(() => { setPageTitle('Reports & Analytics') }, [setPageTitle])
 
   const fetchAll = () => {
-    const params = {}
-    if (startDate) params.start_date = startDate
-    if (endDate) params.end_date = endDate
+    const params = { ...dateRange }
     if (barangay) params.barangay = barangay
     return Promise.all([
       reports.analyticsSum(params).catch(() => null),
@@ -114,7 +112,7 @@ export default function SupervisorReports() {
     }).finally(() => setLoading(false))
   }
 
-  useEffect(() => { fetchAll() }, [])
+  useEffect(() => { fetchAll() }, [dateRange])
   useAutoRefresh(fetchAll, 20000)
 
   const handleGenRepeat = async () => {
@@ -134,11 +132,9 @@ export default function SupervisorReports() {
   const handleGenEnforcement = async () => {
     setGenLoading('enforcement')
     try {
-      const params = {}
-      if (startDate) params.start_date = startDate
-      if (endDate) params.end_date = endDate
-      const s = await reports.analyticsSum(params)
+      const s = await reports.analyticsSum(dateRange)
       downloadCsv('enforcement-activity.csv', [{
+        'Period': s.date_range?.label ?? 'all time',
         'Reports Submitted': s.reports_submitted ?? 0,
         'Reports Resolved': s.reports_resolved ?? 0,
         'Pending': s.pending_now ?? 0,
@@ -155,10 +151,7 @@ export default function SupervisorReports() {
   const handleHtmlReport = async () => {
     setGenLoading('html')
     try {
-      const params = {}
-      if (startDate) params.start_date = startDate
-      if (endDate) params.end_date = endDate
-      const [s, ro] = await Promise.all([reports.analyticsSum(params), reports.repeatOffenders()])
+      const [s, ro] = await Promise.all([reports.analyticsSum(dateRange), reports.repeatOffenders()])
       const arr = Array.isArray(ro) ? ro : (ro?.offenders ?? ro?.data ?? [])
       openHtmlReport(s, arr)
     } catch { toast('Failed to generate report.', 'error') }
@@ -170,24 +163,22 @@ export default function SupervisorReports() {
   return (
     <div>
       {/* Filters */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-        <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
-          style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 12, background: 'var(--color-surface)' }} />
-        <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)}
-          style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 12, background: 'var(--color-surface)' }} />
-        <button onClick={fetchAll} style={{ padding: '6px 16px', borderRadius: 6, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-          Apply
-        </button>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
+        <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)' }}>
+          <span style={{ color: 'var(--color-pending)', fontWeight: 600 }}>Pending</span> is live, right now.
+          Everything else: <strong style={{ color: 'var(--color-text-secondary)' }}>{formatDateRangeLabel(stats.date_range)}</strong>
+        </p>
+        <DateRangeFilter value={dateRange} onChange={setDateRange} />
       </div>
 
       {/* 6 Stat cards */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
-        <StatCard value={stats.reports_submitted ?? 0}   label="Reports Submitted" />
-        <StatCard value={stats.reports_resolved ?? 0}    label="Reports Resolved" color="var(--color-resolved)" />
+        <StatCard value={stats.reports_submitted ?? 0}   label="Reports Submitted" trend={{ pct: stats.trend?.reports_submitted }} />
+        <StatCard value={stats.reports_resolved ?? 0}    label="Reports Resolved" color="var(--color-resolved)" trend={{ pct: stats.trend?.reports_resolved }} />
         <StatCard value={stats.pending_now ?? 0}         label="Pending" color="var(--color-pending)" />
-        <StatCard value={`${stats.resolution_rate ?? 0}%`} label="Resolution Rate" />
-        <StatCard value={`${stats.avg_verify_min ?? 0}m`} label="Avg. Verify Time" />
-        <StatCard value={`${stats.avg_mtpb_response_min ?? 0}m`} label="Avg. MTPB Response" />
+        <StatCard value={`${stats.resolution_rate ?? 0}%`} label="Resolution Rate" trend={{ pct: stats.trend?.resolution_rate }} />
+        <StatCard value={`${stats.avg_verify_min ?? 0}m`} label="Avg. Verify Time" trend={{ pct: stats.trend?.avg_verify_min, positiveIsGood: false }} />
+        <StatCard value={`${stats.avg_mtpb_response_min ?? 0}m`} label="Avg. MTPB Response" trend={{ pct: stats.trend?.avg_mtpb_response_min, positiveIsGood: false }} />
       </div>
 
       {/* Report cards */}
@@ -197,20 +188,30 @@ export default function SupervisorReports() {
           <div style={{ fontSize: 14, fontWeight: 600, color: '#E5E7EB', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             Repeat Offender Summary
           </div>
-          <div style={{ display: 'flex', gap: 20, marginBottom: 20, flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', gap: 20, marginBottom: 8, flexWrap: 'wrap' }}>
             <div>
               <div style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>{stats.total_repeat_offenders ?? repeatOffenders.length}</div>
-              <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Repeat Offenders</div>
+              <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Repeat Offenders (all time)</div>
             </div>
             <div>
               <div style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>{stats.repeat_this_month ?? '-'}</div>
-              <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>This Month</div>
+              <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Active in Period</div>
             </div>
             <div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: '#fff' }}>PHP {(stats.total_fines_issued ?? 0).toLocaleString()}</div>
-              <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Total Fines Issued</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: '#fff', display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                PHP {(stats.total_fines_issued ?? 0).toLocaleString()}
+                {stats.trend?.total_fines_issued != null && (
+                  <span style={{ fontSize: 11, fontWeight: 700, color: stats.trend.total_fines_issued > 0 ? '#6EE7B7' : stats.trend.total_fines_issued < 0 ? '#FCA5A5' : '#9CA3AF' }}>
+                    {stats.trend.total_fines_issued > 0 ? '▲' : stats.trend.total_fines_issued < 0 ? '▼' : ''} {Math.abs(stats.trend.total_fines_issued)}%
+                  </span>
+                )}
+              </div>
+              <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Fines Issued This Period</div>
             </div>
           </div>
+          <p style={{ fontSize: 11, color: '#6B7280', margin: '0 0 12px' }}>
+            "Active in Period" and "Fines Issued" reflect {formatDateRangeLabel(stats.date_range) || 'the selected range'}
+          </p>
           <div style={{ display: 'flex', gap: 8 }}>
             <button onClick={handleGenRepeat} disabled={!!genLoading}
               style={{ flex: 1, padding: '10px', borderRadius: 6, background: '#fff', color: '#0F1117', border: 'none', fontSize: 13, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, opacity: genLoading === 'repeat' ? 0.7 : 1 }}>
@@ -253,7 +254,7 @@ export default function SupervisorReports() {
       </div>
 
       {/* Street-level violation density heat map */}
-      <ViolationHeatMap />
+      <ViolationHeatMap dateRange={dateRange} />
 
       {/* Repeat offender table */}
       <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>

@@ -59,3 +59,12 @@ UAT-SURVEY-QUESTIONS.md
 
 # ─── Thesis working docs (not part of the codebase) ──────
 THESIS-CONTEXT.md
+
+# ─── Working documentation (not part of the codebase) ─────
+# docs/TESTING.md, docs/credentials.md, and docs/postman/ are already
+# tracked from before this rule — this only stops NEW files in these
+# folders (audit notes, defense prep, generated reports, etc.) from being
+# picked up. Untrack an already-committed file explicitly if you want it
+# removed too (git rm --cached <path>).
+docs/
+frontend/docs/

@@ -4,6 +4,7 @@ import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { reports } from '../services/api'
 import LoadingSpinner from './LoadingSpinner'
+import { formatDateRangeLabel } from './DateRangeFilter'
 
 // Malate, Manila
 const CENTER = [14.569, 120.987]
@@ -21,22 +22,34 @@ function countRadius(count, max) {
   return 18 + Math.round((count / max) * 22)
 }
 
-export default function ViolationHeatMap() {
+// dateRange: optional { range } | { start_date, end_date } — when provided,
+// the map narrows to that period; when omitted, it shows all-time cumulative
+// density (the more useful default for spotting long-term hotspots).
+export default function ViolationHeatMap({ dateRange }) {
   const containerRef = useRef(null)
   const mapRef = useRef(null)
   const layersRef = useRef([])
   const [points, setPoints] = useState([])
+  const [meta, setMeta] = useState({ generatedAt: null, dateRangeLabel: null })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
   const load = useCallback(() => {
     setLoading(true)
     setError(null)
-    return reports.violationMap()
-      .then((rows) => setPoints(Array.isArray(rows) ? rows : []))
+    return reports.violationMap(dateRange ?? {})
+      .then((data) => {
+        // Back-compat: older/mocked responses may still be a bare array.
+        const pts = Array.isArray(data) ? data : (data?.points ?? [])
+        setPoints(pts)
+        setMeta({
+          generatedAt: Array.isArray(data) ? null : (data?.generated_at ?? null),
+          dateRangeLabel: Array.isArray(data) ? null : formatDateRangeLabel(data?.date_range),
+        })
+      })
       .catch((e) => setError(e?.message || 'Could not load the map.'))
       .finally(() => setLoading(false))
-  }, [])
+  }, [dateRange])
 
   useEffect(() => { load() }, [load])
 
@@ -109,7 +122,7 @@ export default function ViolationHeatMap() {
 
   return (
     <div style={{ position: 'relative', marginBottom: 24 }}>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4, flexWrap: 'wrap', gap: 8 }}>
         <span style={{ fontSize: 13, fontWeight: 600, color: '#0F1117', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           Barangay Violation Density
         </span>
@@ -129,6 +142,10 @@ export default function ViolationHeatMap() {
             <RefreshCw size={13} /> Refresh
           </button>
         </div>
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 10 }}>
+        Showing: {meta.dateRangeLabel || 'All time'}
+        {meta.generatedAt && ` · as of ${new Date(meta.generatedAt).toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}`}
       </div>
       <div ref={containerRef}
         style={{ height: 420, width: '100%', borderRadius: 'var(--radius-md)', border: '1px solid var(--color-border)', overflow: 'hidden', background: '#E8ECF0', zIndex: 0 }} />

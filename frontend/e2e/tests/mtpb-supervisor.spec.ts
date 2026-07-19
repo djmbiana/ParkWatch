@@ -36,7 +36,7 @@ import { API_URL, ESCALATION_CONFIG_KEYS } from '../helpers/testData';
 
 test.describe('FR-14: Escalation config panel', () => {
   test('TC-SUP-01: Escalation config panel is visible on the supervisor page', async ({ page }) => {
-    await page.route('**/api/reports/queue/supervisor', async (route) => {
+    await page.route('**/api/reports/queue/supervisor**', async (route) => {
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { reports: [], stats: {} } }) });
     });
     await loginAs('supervisor', page, '/mtpb/supervisor/escalated');
@@ -69,7 +69,7 @@ test.describe('FR-14: Escalation config panel', () => {
   });
 
   test('TC-SUP-03: Escalation config panel shows a Save button', async ({ page }) => {
-    await page.route('**/api/reports/queue/supervisor', async (route) => {
+    await page.route('**/api/reports/queue/supervisor**', async (route) => {
       route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true, data: { reports: [], stats: {} } }) });
     });
     await loginAs('supervisor', page, '/mtpb/supervisor/escalated');
@@ -85,7 +85,7 @@ test.describe('FR-14: Escalation config panel', () => {
 
 test.describe('FR-18: Supervisor escalated queue', () => {
   test('TC-SUP-04: Supervisor queue page loads', async ({ page }) => {
-    await page.route('**/api/reports/queue/supervisor', async (route) => {
+    await page.route('**/api/reports/queue/supervisor**', async (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -104,7 +104,7 @@ test.describe('FR-18: Supervisor escalated queue', () => {
       is_escalated: true,
       escalation_reason: 'No response within SLA window',
     };
-    await page.route('**/api/reports/queue/supervisor', async (route) => {
+    await page.route('**/api/reports/queue/supervisor**', async (route) => {
       route.fulfill({
         status: 200,
         contentType: 'application/json',
