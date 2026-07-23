@@ -30,6 +30,30 @@ export function formatDateRangeLabel(dateRange) {
   return `${fmtShort(dateRange.start)} - ${fmtShort(dateRange.end)}`
 }
 
+const PRESET_COMPARE_LABEL = {
+  today: 'vs yesterday',
+  '7d':  'vs previous 7 days',
+  '30d': 'vs previous 30 days',
+  '60d': 'vs previous 60 days',
+}
+
+// Describes what a trend percentage (StatCard) was compared against, e.g.
+// "vs previous 7 days" for a preset, or an exact "vs Jun 13 - Jun 19" for a
+// custom range — backend sends prev_start/prev_end alongside the current
+// date_range (see dateRange.js resolveDateRange). Without this, a "▼ 48%"
+// badge doesn't say what it's measured against and reads as unexplained.
+export function formatCompareLabel(dateRange) {
+  if (!dateRange) return ''
+  const known = PRESET_COMPARE_LABEL[dateRange.preset]
+  if (known) return known
+  if (dateRange.prev_start && dateRange.prev_end) {
+    return dateRange.prev_start === dateRange.prev_end
+      ? `vs ${fmtShort(dateRange.prev_start)}`
+      : `vs ${fmtShort(dateRange.prev_start)} - ${fmtShort(dateRange.prev_end)}`
+  }
+  return 'vs previous period'
+}
+
 export default function DateRangeFilter({ value, onChange }) {
   const selected = value?.range ?? '30d'
   const [customStart, setCustomStart] = useState(value?.start_date ?? todayStr())

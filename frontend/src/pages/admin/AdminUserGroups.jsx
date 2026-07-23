@@ -16,6 +16,64 @@ const MODULES = [
 ]
 const ACTIONS = ['create', 'read', 'update', 'delete']
 
+function PermissionMatrixTable({ perms, matrix, onToggle, editable }) {
+  const permId = (mod, func) => perms.find(p => p.module_name === mod && p.function_name === func)?.id
+  return (
+    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+      <thead>
+        <tr style={{ borderBottom: '2px solid var(--color-border-strong)' }}>
+          <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Module / Function</th>
+          {ACTIONS.map(a => (
+            <th key={a} style={{ padding: '8px 12px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', width: 72 }}>{a}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {MODULES.map(mod => mod.funcs.map((func, fi) => {
+          const pid = permId(mod.key, func)
+          const flags = matrix[pid] ?? {}
+          return (
+            <tr key={`${mod.key}-${func}`} style={{ borderBottom: '1px solid var(--color-border)' }}>
+              <td style={{ padding: '10px 12px' }}>
+                {fi === 0 && (
+                  <span style={{ display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: mod.funcs.length > 1 ? 3 : 0 }}>
+                    {mod.label}
+                  </span>
+                )}
+                {mod.funcs.length > 1 && (
+                  <span style={{ display: 'block', fontSize: 10.5, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.06em', paddingLeft: 10 }}>
+                    {func.replace('_', ' ')}
+                  </span>
+                )}
+              </td>
+              {ACTIONS.map(action => (
+                <td key={action} style={{ padding: '10px 12px', textAlign: 'center' }}>
+                  {pid != null && (
+                    <button
+                      type="button"
+                      onClick={() => editable && onToggle(pid, action)}
+                      style={{
+                        width: 22, height: 22, borderRadius: 4,
+                        border: `1.5px solid ${flags[`can_${action}`] ? 'var(--accent)' : 'var(--color-border)'}`,
+                        background: flags[`can_${action}`] ? 'var(--accent)' : 'transparent',
+                        cursor: editable ? 'pointer' : 'default',
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        color: '#fff', fontSize: 12, fontWeight: 700,
+                      }}
+                    >
+                      {flags[`can_${action}`] ? '✓' : ''}
+                    </button>
+                  )}
+                </td>
+              ))}
+            </tr>
+          )
+        }))}
+      </tbody>
+    </table>
+  )
+}
+
 export default function AdminUserGroups() {
   const { setPageTitle } = useOutletContext()
   const toast = useToast()
@@ -32,6 +90,7 @@ export default function AdminUserGroups() {
 
   const [showAdd, setShowAdd]     = useState(false)
   const [newGroup, setNewGroup]   = useState({ name: '', description: '' })
+  const [newMatrix, setNewMatrix] = useState({})   // { permId: { can_create, can_read, ... } } for the group being created
   const [addLoading, setAddLoading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
@@ -82,6 +141,13 @@ export default function AdminUserGroups() {
     }))
   }
 
+  const toggleNewFlag = (permId, action) => {
+    setNewMatrix(prev => ({
+      ...prev,
+      [permId]: { ...(prev[permId] ?? { can_create: false, can_read: false, can_update: false, can_delete: false }), [`can_${action}`]: !(prev[permId]?.[`can_${action}`]) },
+    }))
+  }
+
   const handleSaveMatrix = async () => {
     if (!selectedGroup) return
     setSaveLoading(true)
@@ -99,10 +165,15 @@ export default function AdminUserGroups() {
     if (!newGroup.name.trim()) { toast('Group name required.', 'error'); return }
     setAddLoading(true)
     try {
-      await adminGroups.create({ name: newGroup.name.trim(), description: newGroup.description.trim() })
+      const created = await adminGroups.create({ name: newGroup.name.trim(), description: newGroup.description.trim() })
+      const rows = Object.entries(newMatrix).map(([permId, flags]) => ({ permission_id: parseInt(permId), ...flags }))
+      if (created?.id && rows.length > 0) {
+        await adminGroups.updatePermissions(created.id, rows)
+      }
       toast(`"${newGroup.name}" created.`, 'success')
       setShowAdd(false)
       setNewGroup({ name: '', description: '' })
+      setNewMatrix({})
       fetchAll()
     } catch (e) { toast(e.message, 'error') }
     finally { setAddLoading(false) }
@@ -142,9 +213,6 @@ export default function AdminUserGroups() {
     finally { setAssignLoading(false) }
   }
 
-  // Helper: find permission ID from matrix columns
-  const permId = (mod, func) => perms.find(p => p.module_name === mod && p.function_name === func)?.id
-
   if (loading) return <div style={{ padding: 48, textAlign: 'center' }}><LoadingSpinner size={28} /></div>
 
   return (
@@ -159,7 +227,7 @@ export default function AdminUserGroups() {
               Assign
             </button>
             {isSuperAdmin && (
-              <button onClick={() => { setNewGroup({ name: '', description: '' }); setShowAdd(true) }}
+              <button onClick={() => { setNewGroup({ name: '', description: '' }); setNewMatrix({}); setShowAdd(true) }}
                 style={{ padding: '5px 10px', borderRadius: 6, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
                 + New
               </button>
@@ -216,55 +284,7 @@ export default function AdminUserGroups() {
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', padding: 20 }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead>
-                  <tr style={{ borderBottom: '2px solid var(--color-border-strong)' }}>
-                    <th style={{ padding: '8px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>Module / Function</th>
-                    {ACTIONS.map(a => (
-                      <th key={a} style={{ padding: '8px 12px', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--color-text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em', width: 72 }}>{a}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {MODULES.map(mod => mod.funcs.map((func, fi) => {
-                    const pid = permId(mod.key, func)
-                    const flags = matrix[pid] ?? {}
-                    return (
-                      <tr key={`${mod.key}-${func}`} style={{ borderBottom: '1px solid var(--color-border)' }}>
-                        <td style={{ padding: '10px 12px' }}>
-                          {fi === 0 && (
-                            <span style={{ display: 'block', fontSize: 11, fontWeight: 700, color: 'var(--color-text-muted)', textTransform: 'uppercase', marginBottom: mod.funcs.length > 1 ? 2 : 0 }}>
-                              {mod.label}
-                            </span>
-                          )}
-                          {mod.funcs.length > 1 && (
-                            <span style={{ fontSize: 12, color: 'var(--color-text-secondary)' }}>{func.replace('_', ' ')}</span>
-                          )}
-                        </td>
-                        {ACTIONS.map(action => (
-                          <td key={action} style={{ padding: '10px 12px', textAlign: 'center' }}>
-                            {pid != null && (
-                              <button
-                                onClick={() => isSuperAdmin && toggleFlag(pid, action)}
-                                style={{
-                                  width: 22, height: 22, borderRadius: 4,
-                                  border: `1.5px solid ${flags[`can_${action}`] ? 'var(--accent)' : 'var(--color-border)'}`,
-                                  background: flags[`can_${action}`] ? 'var(--accent)' : 'transparent',
-                                  cursor: isSuperAdmin ? 'pointer' : 'default',
-                                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                                  color: '#fff', fontSize: 12, fontWeight: 700,
-                                }}
-                              >
-                                {flags[`can_${action}`] ? '✓' : ''}
-                              </button>
-                            )}
-                          </td>
-                        ))}
-                      </tr>
-                    )
-                  }))}
-                </tbody>
-              </table>
+              <PermissionMatrixTable perms={perms} matrix={matrix} onToggle={toggleFlag} editable={isSuperAdmin} />
             </div>
           </>
         )}
@@ -274,14 +294,21 @@ export default function AdminUserGroups() {
       {showAdd && (
         <div onClick={e => { if (e.target === e.currentTarget) setShowAdd(false) }}
           style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div className="modal-animate" style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', width: 420, maxWidth: '90vw', padding: 28, boxShadow: 'var(--shadow-lg)' }}>
+          <div className="modal-animate" style={{ background: 'var(--color-surface)', borderRadius: 'var(--radius-lg)', width: 640, maxWidth: '90vw', maxHeight: '86vh', display: 'flex', flexDirection: 'column', padding: 28, boxShadow: 'var(--shadow-lg)' }}>
             <h2 style={{ fontSize: 16, fontWeight: 600, marginBottom: 20 }}>New User Group</h2>
-            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>Group Name *</label>
-            <input value={newGroup.name} onChange={e => setNewGroup(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Report Reviewer"
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-bg)', color: 'var(--color-text-primary)', marginBottom: 14 }} />
-            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>Description</label>
-            <input value={newGroup.description} onChange={e => setNewGroup(p => ({ ...p, description: e.target.value }))} placeholder="Optional"
-              style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-bg)', color: 'var(--color-text-primary)' }} />
+            <div style={{ overflowY: 'auto', paddingRight: 4 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>Group Name *</label>
+              <input value={newGroup.name} onChange={e => setNewGroup(p => ({ ...p, name: e.target.value }))} placeholder="e.g. Report Reviewer"
+                style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-bg)', color: 'var(--color-text-primary)', marginBottom: 14 }} />
+              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 5 }}>Description</label>
+              <input value={newGroup.description} onChange={e => setNewGroup(p => ({ ...p, description: e.target.value }))} placeholder="Optional"
+                style={{ width: '100%', padding: '8px 12px', borderRadius: 6, border: '1px solid var(--color-border)', fontSize: 13, background: 'var(--color-bg)', color: 'var(--color-text-primary)', marginBottom: 20 }} />
+
+              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--color-text-secondary)', textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 8 }}>Module Permissions</label>
+              <div style={{ border: '1px solid var(--color-border)', borderRadius: 8, padding: '4px 12px' }}>
+                <PermissionMatrixTable perms={perms} matrix={newMatrix} onToggle={toggleNewFlag} editable={true} />
+              </div>
+            </div>
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
               <button onClick={() => setShowAdd(false)} style={{ padding: '8px 20px', borderRadius: 6, border: '1px solid var(--color-border)', background: 'transparent', fontSize: 14, cursor: 'pointer' }}>Cancel</button>
               <button onClick={handleAddGroup} disabled={addLoading} style={{ padding: '8px 20px', borderRadius: 6, background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 14, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8 }}>

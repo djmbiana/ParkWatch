@@ -6,7 +6,7 @@ import StatCard from '../../components/StatCard'
 import StatusBadge from '../../components/StatusBadge'
 import PlateBadge from '../../components/PlateBadge'
 import LoadingSpinner from '../../components/LoadingSpinner'
-import DateRangeFilter, { formatDateRangeLabel } from '../../components/DateRangeFilter'
+import DateRangeFilter, { formatDateRangeLabel, formatCompareLabel } from '../../components/DateRangeFilter'
 
 export default function SupervisorDashboard() {
   const { setPageTitle } = useOutletContext()
@@ -35,20 +35,22 @@ export default function SupervisorDashboard() {
 
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 60 }}><LoadingSpinner size={28} /></div>
 
+  const compareLabel = formatCompareLabel(stats.date_range)
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)' }}>
-          <span style={{ color: 'var(--color-escalated)', fontWeight: 600 }}>Escalated Now</span> is live, right now.
-          Everything else: <strong style={{ color: 'var(--color-text-secondary)' }}>{formatDateRangeLabel(stats.date_range)}</strong>
+          All stats reflect <strong style={{ color: 'var(--color-text-secondary)' }}>{formatDateRangeLabel(stats.date_range)}</strong>,
+          except cards marked <span style={{ color: 'var(--color-escalated)', fontWeight: 700 }}>LIVE</span>, which update in real time.
         </p>
         <DateRangeFilter value={dateRange} onChange={setDateRange} />
       </div>
       <div style={{ display: 'flex', gap: 16, marginBottom: 28, flexWrap: 'wrap' }}>
-        <StatCard value={stats.escalated_now ?? 0}         label="Escalated Now"        color="var(--color-escalated)" />
-        <StatCard value={`${stats.avg_escalation_min ?? 0} min`} label="Avg. Escalation Time" trend={{ pct: stats.trend?.avg_escalation_min, positiveIsGood: false }} />
-        <StatCard value={stats.reports_resolved ?? 0}      label="Resolved"              color="var(--color-resolved)" trend={{ pct: stats.trend?.reports_resolved }} />
-        <StatCard value={`${stats.resolution_rate ?? 0}%`} label="Resolution Rate" trend={{ pct: stats.trend?.resolution_rate }} />
+        <StatCard value={stats.escalated_now ?? 0}         label="Escalated Now"        color="var(--color-escalated)" live />
+        <StatCard value={`${stats.avg_escalation_min ?? 0} min`} label="Avg. Escalation Time" trend={{ pct: stats.trend?.avg_escalation_min, positiveIsGood: false, compareLabel }} />
+        <StatCard value={stats.reports_resolved ?? 0}      label="Resolved"              color="var(--color-resolved)" trend={{ pct: stats.trend?.reports_resolved, compareLabel }} />
+        <StatCard value={`${stats.resolution_rate ?? 0}%`} label="Resolution Rate" trend={{ pct: stats.trend?.resolution_rate, compareLabel }} />
       </div>
 
       <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>

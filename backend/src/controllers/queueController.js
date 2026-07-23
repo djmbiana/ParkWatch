@@ -169,7 +169,7 @@ const barangayStats = async (req, res, next) => {
         rejected: trendPct(rejected, previous.rejected),
         avg_review_min: trendPct(avgReviewMin, Math.round(Number(previous.avg_review_min ?? 0))),
       },
-      date_range: { start: startDate, end: endDate, label, preset },
+      date_range: { start: startDate, end: endDate, label, preset, prev_start: prevStartDate, prev_end: prevEndDate },
     }});
   } catch (err) { return next(err); }
 };
@@ -601,7 +601,7 @@ const analyticsSummary = async (req, res, next) => {
       avg_acknowledgment_time_minutes: current.avg_mtpb_response_min,
       avg_resolution_time_minutes: current.avg_resolution_min,
       trend,
-      date_range: { start: startDate, end: endDate, label, preset },
+      date_range: { start: startDate, end: endDate, label, preset, prev_start: prevStartDate, prev_end: prevEndDate },
     }});
   } catch (err) { return next(err); }
 };
@@ -770,7 +770,7 @@ const supervisorQueue = async (req, res, next) => {
           resolved_today: trendPct(current.resolved_in_range, previous.resolved_in_range),
           resolution_rate: trendPct(current.resolution_rate, previous.resolution_rate),
         },
-        date_range: { start: startDate, end: endDate, label, preset },
+        date_range: { start: startDate, end: endDate, label, preset, prev_start: prevStartDate, prev_end: prevEndDate },
       },
     }});
   } catch (err) { return next(err); }

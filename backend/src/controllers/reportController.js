@@ -781,6 +781,54 @@ const getById = async (req, res, next) => {
 };
 
 // ---------------------------------------------------------------------------
+// GET /api/reports/:reportId/photo — streams the report's main evidence photo
+// through our own origin instead of redirecting to the GCS presigned URL.
+// The citizen PDF export embeds this photo via a canvas (jsPDF addImage),
+// which requires the image to be readable cross-origin; GCS presigned URLs
+// don't carry CORS headers for our frontend's origin, so loading one
+// directly into an <img>+canvas taints the canvas and blocks the read.
+// Fetching the bytes server-side (no browser CORS restriction applies to a
+// server-to-server request) and re-serving them from our own domain makes
+// the image same-origin from the browser's point of view. Same access rule
+// as getById (staff JWT, or a matching access_token for anonymous callers).
+// ---------------------------------------------------------------------------
+const getPhoto = async (req, res, next) => {
+  const reportId = parseInt(req.params.reportId, 10);
+  if (!Number.isInteger(reportId) || reportId <= 0) {
+    return fail(res, 400, 'Invalid report id.');
+  }
+
+  try {
+    const [[report]] = await pool.execute(
+      'SELECT report_id, citizen_id, photo_path, access_token FROM VIOLATION_REPORTS WHERE report_id = ? LIMIT 1',
+      [reportId]
+    );
+    if (!report) return fail(res, 404, 'Report not found.');
+    if (!report.photo_path) return fail(res, 404, 'This report has no photo.');
+
+    const role = req.user?.role;
+    if (req.user) {
+      if (role === 'citizen' && report.citizen_id !== req.user.id) {
+        return fail(res, 403, 'You can only view your own reports.');
+      }
+    } else if (!tokenMatches(req.query.token, report.access_token)) {
+      return fail(res, 401, 'A valid access token is required to view this report.');
+    }
+
+    const signedUrl = await storageService.getSignedReadUrl(report.photo_path, 5);
+    const upstream = await fetch(signedUrl);
+    if (!upstream.ok) return fail(res, 502, 'Could not retrieve the photo.');
+
+    const buffer = Buffer.from(await upstream.arrayBuffer());
+    res.set('Content-Type', upstream.headers.get('content-type') || 'image/jpeg');
+    res.set('Cache-Control', 'private, max-age=300');
+    return res.send(buffer);
+  } catch (err) {
+    return next(err);
+  }
+};
+
+// ---------------------------------------------------------------------------
 // POST /api/reports/check-duplicate  { plate, street_id }
 // Lets the citizen app warn — BEFORE submitting — that this vehicle was already
 // reported at this location within the dedup window, so a second reporter knows
@@ -966,4 +1014,4 @@ const renderAppealVerdict = async (req, res, next) => {
   }
 };
 
-module.exports = { create, confirm, mine, getById, ocrPreview, penaltyPreview, checkDuplicate, attachAdditionalPhotos, contest, renderAppealVerdict };
+module.exports = { create, confirm, mine, getById, getPhoto, ocrPreview, penaltyPreview, checkDuplicate, attachAdditionalPhotos, contest, renderAppealVerdict };

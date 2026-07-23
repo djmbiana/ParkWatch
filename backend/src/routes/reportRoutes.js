@@ -97,6 +97,9 @@ router.get('/analytics/violation-map',    authenticate, authorize(ROLES.MTPB_SUP
 // --- All reports (supervisor / admin) — paginated list -------------------
 router.get('/', authenticate, authorize(ROLES.MTPB_SUPERVISOR, ROLES.ADMIN), queueController.allReports);
 
+// Same-origin photo proxy for the citizen PDF export (see getPhoto for why).
+router.get('/:reportId/photo', optionalAuthenticate, reportController.getPhoto);
+
 // --- Report detail (role-scoped) — must be last to avoid matching above ----
 // FR-16: Anonymous citizens access their own reports via the access_token
 // returned at submission and stored in localStorage['parkwatch_reports'] —

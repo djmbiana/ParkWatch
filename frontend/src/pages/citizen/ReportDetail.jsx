@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { ChevronLeft, ChevronRight } from "lucide-react"
+import { ChevronLeft, ChevronRight, Download } from "lucide-react"
 import { citizen, citizenStore } from "../../services/api"
 import CitizenHeader from "../../components/citizen/CitizenHeader"
 import LoadingSpinner from "../../components/LoadingSpinner"
 import StatusBadge from "../../components/StatusBadge"
 import StatusTimeline from "../../components/citizen/StatusTimeline"
+import { useToast } from "../../components/ToastContext"
 import { formatDateTime, formatPenalty } from "../../utils/format"
+import { downloadReportPdf } from "../../utils/reportPdf"
 
 function DetailRow({ label, value, strong }) {
   return (
@@ -20,11 +22,25 @@ function DetailRow({ label, value, strong }) {
 export default function ReportDetail() {
   const { reportId } = useParams()
   const navigate = useNavigate()
+  const toast = useToast()
   const [report, setReport] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [lightbox, setLightbox] = useState(null) // null | 'main'
   const [ssIdx, setSsIdx] = useState(null) // null | number — inline slideshow
+  const [pdfLoading, setPdfLoading] = useState(false)
+
+  const handleDownloadPdf = async () => {
+    setPdfLoading(true)
+    try {
+      const photoUrl = report.photo_url ? citizen.getPhotoUrl(reportId, citizenStore.getToken(reportId)) : null
+      await downloadReportPdf(report, { photoUrl })
+    } catch {
+      toast("Couldn't generate the PDF. Please try again.", "error")
+    } finally {
+      setPdfLoading(false)
+    }
+  }
 
   useEffect(() => {
     let active = true
@@ -190,6 +206,16 @@ export default function ReportDetail() {
               style={{ marginTop: 20, width: "100%", height: 52, background: "var(--c-primary)", color: "#fff", border: "none", borderRadius: 12, fontSize: 15, fontWeight: 600, cursor: "pointer" }}
             >
               Submit Another Report
+            </button>
+
+            <button
+              type="button"
+              onClick={handleDownloadPdf}
+              disabled={pdfLoading}
+              style={{ marginTop: 10, width: "100%", height: 52, background: "var(--c-surface)", color: "var(--c-text)", border: "1.5px solid var(--c-border)", borderRadius: 12, fontSize: 15, fontWeight: 600, cursor: pdfLoading ? "default" : "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+            >
+              {pdfLoading ? <LoadingSpinner size={16} color="var(--c-primary)" /> : <Download size={17} />}
+              {pdfLoading ? "Preparing PDF…" : "Download PDF Copy"}
             </button>
           </div>
         </div>

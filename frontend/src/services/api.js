@@ -251,6 +251,11 @@ export const citizen = {
   // so report ids cannot be enumerated.
   getReport:     (id, token) =>
     publicRequest(`/api/reports/${id}${token ? `?token=${encodeURIComponent(token)}` : ''}`),
+  // Same-origin photo URL for the PDF export — a signed GCS URL can't be read
+  // into a canvas (no CORS headers on the bucket), but our own API already
+  // allows the frontend's origin, so proxying through it works.
+  getPhotoUrl:   (id, token) =>
+    `${BASE}/api/reports/${id}/photo${token ? `?token=${encodeURIComponent(token)}` : ''}`,
 
   // Attach extra evidence photos to an existing report.
   // token: the per-report access_token (original reporter) or null (witness/corroborate mode).

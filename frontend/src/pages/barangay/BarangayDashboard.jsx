@@ -6,7 +6,7 @@ import StatCard from '../../components/StatCard'
 import DataTable from '../../components/DataTable'
 import StatusBadge from '../../components/StatusBadge'
 import PlateBadge from '../../components/PlateBadge'
-import DateRangeFilter, { formatDateRangeLabel } from '../../components/DateRangeFilter'
+import DateRangeFilter, { formatDateRangeLabel, formatCompareLabel } from '../../components/DateRangeFilter'
 
 function fmt(dt) {
   if (!dt) return '-'
@@ -67,6 +67,8 @@ export default function BarangayDashboard() {
     },
   ]
 
+  const compareLabel = formatCompareLabel(stats.date_range)
+
   return (
     <div>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -76,10 +78,10 @@ export default function BarangayDashboard() {
         <DateRangeFilter value={dateRange} onChange={setDateRange} />
       </div>
       <div style={{ display: 'flex', gap: 16, marginBottom: 28, flexWrap: 'wrap' }}>
-        <StatCard value={stats.pending ?? 0}          label="Pending"  trend={{ pct: stats.trend?.pending, positiveIsGood: false }} />
-        <StatCard value={stats.verified ?? 0}         label="Verified" color="var(--color-verified)" trend={{ pct: stats.trend?.verified }} />
-        <StatCard value={stats.rejected ?? 0}         label="Declined" color="var(--color-rejected)" trend={{ pct: stats.trend?.rejected, positiveIsGood: false }} />
-        <StatCard value={`${stats.avg_review_min ?? 0} min`} label="Avg. Review Time" trend={{ pct: stats.trend?.avg_review_min, positiveIsGood: false }} />
+        <StatCard value={stats.pending ?? 0}          label="Pending"  trend={{ pct: stats.trend?.pending, positiveIsGood: false, compareLabel }} />
+        <StatCard value={stats.verified ?? 0}         label="Verified" color="var(--color-verified)" trend={{ pct: stats.trend?.verified, compareLabel }} />
+        <StatCard value={stats.rejected ?? 0}         label="Declined" color="var(--color-rejected)" trend={{ pct: stats.trend?.rejected, positiveIsGood: false, compareLabel }} />
+        <StatCard value={`${stats.avg_review_min ?? 0} min`} label="Avg. Review Time" trend={{ pct: stats.trend?.avg_review_min, positiveIsGood: false, compareLabel }} />
       </div>
 
       <div style={{

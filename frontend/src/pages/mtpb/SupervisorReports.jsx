@@ -7,18 +7,27 @@ import StatCard from '../../components/StatCard'
 import PlateBadge from '../../components/PlateBadge'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import ViolationHeatMap from '../../components/ViolationHeatMap'
-import DateRangeFilter, { formatDateRangeLabel } from '../../components/DateRangeFilter'
+import DateRangeFilter, { formatDateRangeLabel, formatCompareLabel } from '../../components/DateRangeFilter'
 import useAutoRefresh from '../../hooks/useAutoRefresh'
+
+// Quotes a single line as one CSV cell so commas inside it (e.g. the comma in
+// a localized date/time like "7/23/2026, 9:26:05 PM") can't be misread as
+// column delimiters — an unescaped comma here made every downstream row have
+// a different column count, which made Excel/Numbers guess the wrong import
+// format and garble the whole file.
+const csvCell = (text) => `"${String(text).replace(/"/g, '""')}"`
 
 function downloadCsv(filename, rows, title) {
   const lines = []
   if (title) {
-    lines.push(title)
-    lines.push(`Generated: ${new Date().toLocaleString('en-PH')}`)
+    lines.push(csvCell(title))
+    lines.push(csvCell(`Generated: ${new Date().toLocaleString('en-PH')}`))
     lines.push('')
   }
   lines.push(Papa.unparse(rows))
-  const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' })
+  // Leading BOM so Excel (which doesn't assume UTF-8 by default) reads the
+  // file's encoding correctly instead of guessing from system locale.
+  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
@@ -160,25 +169,27 @@ export default function SupervisorReports() {
 
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 60 }}><LoadingSpinner size={28} /></div>
 
+  const compareLabel = formatCompareLabel(stats.date_range)
+
   return (
     <div>
       {/* Filters */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 20, flexWrap: 'wrap' }}>
         <p style={{ margin: 0, fontSize: 13, color: 'var(--color-text-muted)' }}>
-          <span style={{ color: 'var(--color-pending)', fontWeight: 600 }}>Pending</span> is live, right now.
-          Everything else: <strong style={{ color: 'var(--color-text-secondary)' }}>{formatDateRangeLabel(stats.date_range)}</strong>
+          All stats reflect <strong style={{ color: 'var(--color-text-secondary)' }}>{formatDateRangeLabel(stats.date_range)}</strong>,
+          except cards marked <span style={{ color: 'var(--color-pending)', fontWeight: 700 }}>LIVE</span>, which update in real time.
         </p>
         <DateRangeFilter value={dateRange} onChange={setDateRange} />
       </div>
 
       {/* 6 Stat cards */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
-        <StatCard value={stats.reports_submitted ?? 0}   label="Reports Submitted" trend={{ pct: stats.trend?.reports_submitted }} />
-        <StatCard value={stats.reports_resolved ?? 0}    label="Reports Resolved" color="var(--color-resolved)" trend={{ pct: stats.trend?.reports_resolved }} />
-        <StatCard value={stats.pending_now ?? 0}         label="Pending" color="var(--color-pending)" />
-        <StatCard value={`${stats.resolution_rate ?? 0}%`} label="Resolution Rate" trend={{ pct: stats.trend?.resolution_rate }} />
-        <StatCard value={`${stats.avg_verify_min ?? 0}m`} label="Avg. Verify Time" trend={{ pct: stats.trend?.avg_verify_min, positiveIsGood: false }} />
-        <StatCard value={`${stats.avg_mtpb_response_min ?? 0}m`} label="Avg. MTPB Response" trend={{ pct: stats.trend?.avg_mtpb_response_min, positiveIsGood: false }} />
+        <StatCard value={stats.reports_submitted ?? 0}   label="Reports Submitted" trend={{ pct: stats.trend?.reports_submitted, compareLabel }} />
+        <StatCard value={stats.reports_resolved ?? 0}    label="Reports Resolved" color="var(--color-resolved)" trend={{ pct: stats.trend?.reports_resolved, compareLabel }} />
+        <StatCard value={stats.pending_now ?? 0}         label="Pending" color="var(--color-pending)" live />
+        <StatCard value={`${stats.resolution_rate ?? 0}%`} label="Resolution Rate" trend={{ pct: stats.trend?.resolution_rate, compareLabel }} />
+        <StatCard value={`${stats.avg_verify_min ?? 0}m`} label="Avg. Verify Time" trend={{ pct: stats.trend?.avg_verify_min, positiveIsGood: false, compareLabel }} />
+        <StatCard value={`${stats.avg_mtpb_response_min ?? 0}m`} label="Avg. MTPB Response" trend={{ pct: stats.trend?.avg_mtpb_response_min, positiveIsGood: false, compareLabel }} />
       </div>
 
       {/* Report cards */}
@@ -207,6 +218,9 @@ export default function SupervisorReports() {
                 )}
               </div>
               <div style={{ fontSize: 11, color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Fines Issued This Period</div>
+              {stats.trend?.total_fines_issued != null && compareLabel && (
+                <div style={{ fontSize: 10, color: '#6B7280', marginTop: 2 }}>{compareLabel}</div>
+              )}
             </div>
           </div>
           <p style={{ fontSize: 11, color: '#6B7280', margin: '0 0 12px' }}>
