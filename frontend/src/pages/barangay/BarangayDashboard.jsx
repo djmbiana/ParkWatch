@@ -7,6 +7,7 @@ import DataTable from '../../components/DataTable'
 import StatusBadge from '../../components/StatusBadge'
 import PlateBadge from '../../components/PlateBadge'
 import DateRangeFilter, { formatDateRangeLabel, formatCompareLabel } from '../../components/DateRangeFilter'
+import InsightsPanel, { deriveBarangayInsights } from '../../components/InsightsPanel'
 
 function fmt(dt) {
   if (!dt) return '-'
@@ -68,6 +69,7 @@ export default function BarangayDashboard() {
   ]
 
   const compareLabel = formatCompareLabel(stats.date_range)
+  const insights = deriveBarangayInsights(stats)
 
   return (
     <div>
@@ -83,6 +85,8 @@ export default function BarangayDashboard() {
         <StatCard value={stats.rejected ?? 0}         label="Declined" color="var(--color-rejected)" trend={{ pct: stats.trend?.rejected, positiveIsGood: false, compareLabel }} />
         <StatCard value={`${stats.avg_review_min ?? 0} min`} label="Avg. Review Time" trend={{ pct: stats.trend?.avg_review_min, positiveIsGood: false, compareLabel }} />
       </div>
+
+      <InsightsPanel insights={insights} periodLabel={formatDateRangeLabel(stats.date_range)} />
 
       <div style={{
         background: 'var(--color-surface)',

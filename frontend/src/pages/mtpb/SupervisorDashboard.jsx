@@ -7,6 +7,7 @@ import StatusBadge from '../../components/StatusBadge'
 import PlateBadge from '../../components/PlateBadge'
 import LoadingSpinner from '../../components/LoadingSpinner'
 import DateRangeFilter, { formatDateRangeLabel, formatCompareLabel } from '../../components/DateRangeFilter'
+import InsightsPanel, { deriveSupervisorInsights } from '../../components/InsightsPanel'
 
 export default function SupervisorDashboard() {
   const { setPageTitle } = useOutletContext()
@@ -36,6 +37,7 @@ export default function SupervisorDashboard() {
   if (loading) return <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 60 }}><LoadingSpinner size={28} /></div>
 
   const compareLabel = formatCompareLabel(stats.date_range)
+  const insights = deriveSupervisorInsights(stats)
 
   return (
     <div>
@@ -52,6 +54,8 @@ export default function SupervisorDashboard() {
         <StatCard value={stats.reports_resolved ?? 0}      label="Resolved"              color="var(--color-resolved)" trend={{ pct: stats.trend?.reports_resolved, compareLabel }} />
         <StatCard value={`${stats.resolution_rate ?? 0}%`} label="Resolution Rate" trend={{ pct: stats.trend?.resolution_rate, compareLabel }} />
       </div>
+
+      <InsightsPanel insights={insights} periodLabel={formatDateRangeLabel(stats.date_range)} />
 
       <div style={{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-sm)', overflow: 'hidden' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--color-border)' }}>
